@@ -257,7 +257,7 @@ login step (`signin/rejected`).
 ## Verification
 
 ```bash
-.venv/bin/python tests/selftest.py     # 19 tests: TOTP RFC, DB, vault, guard, browser, lock
+.venv/bin/python tests/selftest.py     # 28 tests: TOTP RFC, DB, vault, guard, browser, lock, i18n
 python3 tools/make_lock.py --verify    # lock hashes vs PyPI, without a venv
 ./run.sh --check                       # python, data dir, secret backend, browser
 curl -s localhost:8765/healthz         # {"ok":true,"secret_backend":…,"browser":…}
