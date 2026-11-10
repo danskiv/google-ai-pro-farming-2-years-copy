@@ -1,132 +1,132 @@
-# AGENTS.md — runbook untuk agent/engine yang mengoperasikan GaiConsole
+# AGENTS.md — runbook for agents/engines operating GaiConsole
 
-Dokumen ini ditulis untuk agent AI (Muse, Hermes, atau engine lain) yang
-diminta memasang atau menjalankan repo ini atas nama pemiliknya. Ikuti apa
-adanya; jangan mengimprovisasi jalur pintas di sekitar guard.
+This document is written for an AI agent (Muse, Hermes, or another engine) that
+is asked to install or run this repo on behalf of its owner. Follow it
+as written; do not improvise shortcuts around the guard.
 
-## Misi
+## Mission
 
-Per akun Google di vault: berlangganan Google AI Pro lewat penumpukan masa
-gratis (layer 1 → 12 bulan, layer 2 → 18, layer 3 → 24), lalu **cancel
-auto-renew** dan **lepas kartu** dari akun. Hasil akhir yang sah hanya satu:
-langganan aktif sampai tanggal berakhir ±24 bulan, total yang dibayar **$0**,
-status cancel terverifikasi, kartu tidak tertinggal di akun.
+For each Google account in the vault: subscribe to Google AI Pro by stacking
+free periods (layer 1 → 12 months, layer 2 → 18, layer 3 → 24), then **cancel
+auto-renew** and **remove the card** from the account. There is only one valid
+end result: a subscription active until an end date ±24 months out, a total paid of **$0**,
+cancel status verified, and no card left behind on the account.
 
-## Aturan keras
+## Hard rules
 
-1. **Jangan pernah commit kalau total bukan $0 / bukan free trial.** Guard di
-   `tasks/subscribe_flow.py` sudah menolak nominal bukan nol dan tanggal yang
-   meleset; kalau guard berhenti, **berhenti** — jangan paksa, jangan edit
-   guard supaya lolos.
-2. **Jangan pernah mencetak rahasia.** Nomor kartu, CVC, password, seed TOTP,
-   dan token konsol hidup di vault dan file data dir. Jangan echo ke log,
-   chat, commit, atau file di repo. Sebut kartu hanya sebagai `Brand-last4`.
-3. **Jangan commit artefak jalan** (log run, screenshot, profil browser, data
-   dir) ke repo.
-4. Dua titik memang butuh manusia dan **tidak boleh diakali**: device prompt
-   saat login, dan persetujuan “Verify that it’s you” di HP saat melepas
-   kartu. Minta pemilik menyetujui, lalu tunggu.
-5. Satu run untuk satu akun dalam satu waktu (`GAI_MAX_CONCURRENT=1`).
+1. **Never commit if the total is not $0 / not a free trial.** The guard in
+   `tasks/subscribe_flow.py` already rejects non-zero amounts and off-target
+   dates; if the guard stops, **stop** — do not force it, do not edit the
+   guard to make it pass.
+2. **Never print secrets.** Card numbers, CVCs, passwords, TOTP seeds,
+   and the console token live in the vault and the data-dir files. Do not echo them to logs,
+   chats, commits, or files in the repo. Refer to a card only as `Brand-last4`.
+3. **Do not commit run artifacts** (run logs, screenshots, browser profiles, data
+   dirs) to the repo.
+4. Two points genuinely need a human and **must not be circumvented**: the device prompt
+   at login, and the “Verify that it’s you” approval on the phone when removing
+   the card. Ask the owner to approve, then wait.
+5. One run for one account at a time (`GAI_MAX_CONCURRENT=1`).
 
-## Prasyarat mesin
+## Machine prerequisites
 
-- Python 3.12+, venv dibuat `run.sh` (Windows: `run.ps1`).
-- Egress internet dengan **negara US** (alur memverifikasi sendiri lewat
-  ipwho.is dan berhenti kalau bukan US).
-- Mesin tanpa layar: pasang Xvfb. Google menolak login headless
-  (`signin/rejected`); jalankan browser **headed** di display virtual.
-- Egress terbatas (semua trafik dipaksa lewat proxy)? Baca bagian
-  **“Egress terbatas”** di README dan set kombinasi env-nya sebelum menyerah:
-  relay lokal + `GAI_BROWSER_PROXY` + `GAI_IGNORE_CERT_ERRORS=1` +
+- Python 3.12+, the venv is created by `run.sh` (Windows: `run.ps1`).
+- Internet egress in the **US** (the flow verifies this itself via
+  ipwho.is and stops if it is not US).
+- A display-less machine: install Xvfb. Google rejects headless logins
+  (`signin/rejected`); run the browser **headed** on a virtual display.
+- Restricted egress (all traffic forced through a proxy)? Read the
+  **“Restricted egress”** section in the README and set its env combination before giving up:
+  a local relay + `GAI_BROWSER_PROXY` + `GAI_IGNORE_CERT_ERRORS=1` +
   `GAI_MIRROR_CLIENTS2=1`.
 
-## Pasang & jalankan konsol
+## Install & run the console
 
 ```bash
-./run.sh --check                        # python, data dir, backend secret, browser
-.venv/bin/python tests/selftest.py      # harus 19/19
-./run.sh                                # konsol di 127.0.0.1:8765
+./run.sh --check                        # python, data dir, secret backend, browser
+.venv/bin/python tests/selftest.py      # must be 28/28
+./run.sh                                # console on 127.0.0.1:8765
 curl -s localhost:8765/healthz          # {"ok":true,...}
 ```
 
-Di Windows pakai padanannya: `.\run.ps1 --check`, selftest
-`.venv\Scripts\python tests\selftest.py`, lalu `.\run.ps1`. Bedanya hanya di
-jalur platform: data dir `%LOCALAPPDATA%\GaiConsole`, backend secret selalu
-`file` (tidak ada CLI keyring bawaan; proteksi = ACL profil user), dan
-browser jalan headed bawaan — tidak perlu Xvfb. Chrome/Chromium dicari di
-lokasi instalasi standar Windows; tidak ada keduanya, Playwright bundled
-yang dipakai.
+On Windows use the equivalents: `.\run.ps1 --check`, selftest
+`.venv\Scripts\python tests\selftest.py`, then `.\run.ps1`. The only differences are
+platform paths: the data dir `%LOCALAPPDATA%\GaiConsole`, the secret backend is always
+`file` (there is no built-in keyring CLI; protection = the user profile ACL), and
+the browser runs headed natively — no Xvfb needed. Chrome/Chromium is searched in
+the standard Windows install locations; if neither exists, the bundled Playwright
+browser is used.
 
-Token konsol ada di file `console.token` di data dir
+The console token is in the `console.token` file in the data dir
 (Linux: `~/.local/share/GaiConsole/`, macOS: `~/Library/Application
-Support/GaiConsole/`, Windows: `%LOCALAPPDATA%\GaiConsole\`). Semua panggilan API memakai header
-`X-Console-Token: <token>` atau query `?t=<token>`. Jangan tampilkan isinya.
+Support/GaiConsole/`, Windows: `%LOCALAPPDATA%\GaiConsole\`). All API calls use the header
+`X-Console-Token: <token>` or the query `?t=<token>`. Do not display its contents.
 
-## Isi data (lewat UI atau API)
+## Load data (via the UI or the API)
 
-- Kartu: `POST /cards/import` — format `nomor|MM/YY|CVC` per baris.
-- Akun: `POST /accounts/import` — format `email|password|seed_totp` per baris.
-  Akun otomatis dipasangkan ke kartu yang bebas.
+- Cards: `POST /cards/import` — format `number|MM/YY|CVC`, one per line.
+- Accounts: `POST /accounts/import` — format `email|password|totp_seed`, one per line.
+  An account is automatically paired with a free card.
 
-## Jalankan satu akun
+## Run one account
 
 ```bash
 curl -s -X POST localhost:8765/accounts/<account_id>/run -H "X-Console-Token: $TOKEN"
-curl -s localhost:8765/api/state -H "X-Console-Token: $TOKEN"   # status + step per akun
+curl -s localhost:8765/api/state -H "X-Console-Token: $TOKEN"   # status + step per account
 ```
 
-Pantau log run terbaru di `<data dir>/artifacts/run_<account_id>_*.log` dan
-screenshot `flow_L<layer>_*.png` / `flow_final_*.png` di folder yang sama.
-Tahapan sehat: `EGRESS … US` → `LOGIN siap` → `DISC … layer …` → per layer
-`GUARD … lolos` → `terkirim` → `CANCEL terverifikasi` → `SELESAI`.
-Status akhir akun di `/api/state` harus `subscribed`.
+Watch the latest run log in `<data dir>/artifacts/run_<account_id>_*.log` and
+the screenshots `flow_L<layer>_*.png` / `flow_final_*.png` in the same folder.
+Healthy stages: `EGRESS … US` → `LOGIN ready` → `DISC … layer …` → per layer
+`GUARD layer <n>: passed` → `LAYER <n> submitted` → `CANCEL verified` → `DONE`.
+The account's final status in `/api/state` must be `subscribed`.
 
-Run yang terputus aman diulang dari konsol: discovery membaca term yang
-sudah berjalan dan melanjutkan dari layer yang tepat.
+An interrupted run is safe to repeat from the console: discovery reads the term that
+is already running and resumes from the right layer.
 
-## Playbook kegagalan (dari pengalaman nyata)
+## Failure playbook (from real experience)
 
-| Gejala di log / layar | Penyebab | Tindakan |
+| Symptom in the log / on screen | Cause | Action |
 |---|---|---|
-| `nav gagal … ERR_SSL_PROTOCOL_ERROR` di cek egress | proxy egress menolak tunnel Chromium | relay lokal + `GAI_BROWSER_PROXY=127.0.0.1:<port>` |
-| semua situs error sertifikat | proxy menandatangani ulang TLS | `GAI_IGNORE_CERT_ERRORS=1` |
-| `LOGIN GAGAL`, Google menjawab “Wrong password” | password di vault salah | minta password yang benar ke pemilik, tulis ulang ke vault, reset status akun ke `pending`, ulangi |
-| dialog checkout “Loading…” > 60 detik | `clients2.google.com` diblokir (`policy_denied`) | `GAI_MIRROR_CLIENTS2=1`, restart konsol, ulangi |
-| `dialog tidak terbuka` di layer 1 | halaman paket memakai tombol “Get discount” | sudah ditangani alur (klik tombol paling kanan = kartu AI Pro); kalau layout berubah lagi, periksa teks tombol saat ini sebelum mengubah kode |
-| kartu: `dialog tidak kembali setelah menyimpan` | reCAPTCHA muncul saat Save card, atau kartu memang belum tersimpan | cek `payments.google.com` → metode pembayaran. Kalau kosong: ulangi run (profil sama sering lolos), atau jalankan terawasi dan selesaikan tantangan di jendela browser |
-| reCAPTCHA tidak selesai dalam satu jawaban | tantangan dinamis multi-ronde adalah normal (mis. “bicycles” lalu “motorcycles”); tile yang dipilih bisa terganti gambar baru | teruskan menjawab ronde demi ronde sampai dialog kembali; jangan menyerah di ronde pertama. Kadang tantangan juga lolos sendiri tanpa ronde gambar |
-| lepas kartu berhenti sebelum tombol apa pun ditekan | halaman pembayaran mengikuti **bahasa akun** (mis. Indonesia), jadi label Inggris tidak ketemu | sudah ditangani: pencocokan teks `detach_on_google` dwibahasa (EN+ID) dan menerima dua varian tombol verifikasi. `?hl=en` tidak menimpa bahasa akun |
-| persen persetujuan tak kunjung selesai saat lepas kartu | menunggu tap pemilik di HP (maks 300 detik) | ingatkan pemilik; langganan + cancel tetap sah walau langkah ini gagal |
-| lepas kartu berputar sampai timeout, tidak ada tombol tertekan | di halaman Play kartu tampil tanpa tombol Remove; Remove ada di balik tautan “Edit payment methods” | sudah ditangani: cabang kartu kini jatuh ke tautan Edit. Halaman reauth payments center (“Verify to see payments info”) juga sudah dikenali; tombolnya “Verify it's you” |
-| kartu tertulis `tidak terbukti` padahal kartu sudah hilang | pemeriksa lama tidak mengenal keadaan kosong payments center | sudah ditangani: “Add payment method” / “No payment methods yet” kini jadi bukti ketiadaan (jarum lama “Add a payment” tidak cocok dengan teks tombol itu) |
-| digit nomor kartu hilang saat pengisian (kolom berakhir 1–2 digit) | modal form belum stabil saat pengetikan mulai | sudah ditangani: jeda stabil 2,5 dtk + baca-balik digit per kolom dengan ketik ulang; form yang tetap utuh setelah Save terdeteksi dini dan diisi ulang |
-| `guard … GAGAL` / nominal bukan nol terbaca | penawaran berubah atau token layer tidak berlaku | **berhenti total**, laporkan teks dialog ke pemilik; jangan commit |
-| `guard … GAGAL` di layer 2/3 padahal dialog “Upcoming charges” | rincian per-produk tercetak *setelah* total masa depannya, jauh dari penanda mulai | sudah ditangani di guard: nominal yang merupakan rincian persis (≥2 komponen, jumlahnya sama persis) dari satu total masa depan yang terikat penanda dihitung terikat. Di luar pola itu tetap **berhenti total** |
-| akun bekas anggota family dari akun Pro | riwayat family **tidak** memblokir penumpukan trial AI Pro (terbukti run 2026-11-09) | jalankan seperti biasa; satu-satunya efek: trial add-on YouTube Premium tidak eligible (dialog menyebutnya) dan add-on itu ikut mati saat cancel |
+| `nav failed … ERR_SSL_PROTOCOL_ERROR` in the egress check | the egress proxy refuses the Chromium tunnel | local relay + `GAI_BROWSER_PROXY=127.0.0.1:<port>` |
+| every site shows a certificate error | the proxy re-signs TLS | `GAI_IGNORE_CERT_ERRORS=1` |
+| `LOGIN FAILED`, Google answers “Wrong password” | the password in the vault is wrong | ask the owner for the correct password, rewrite it into the vault, reset the account status to `pending`, repeat |
+| the checkout dialog shows “Loading…” > 60 seconds | `clients2.google.com` is blocked (`policy_denied`) | `GAI_MIRROR_CLIENTS2=1`, restart the console, repeat |
+| `dialog did not open` at layer 1 | the plan page uses “Get discount” buttons | already handled by the flow (it clicks the rightmost button = the AI Pro card); if the layout changes again, inspect the current button text before changing code |
+| card: `dialog did not return after saving` | a reCAPTCHA appears at Save card, or the card really is not saved yet | check `payments.google.com` → payment methods. If empty: repeat the run (the same profile often passes), or run it supervised and solve the challenge in the browser window |
+| the reCAPTCHA is not solved in one answer | dynamic multi-round challenges are normal (e.g. “bicycles” then “motorcycles”); a selected tile can be replaced with a new image | keep answering round after round until the dialog returns; do not give up at the first round. Sometimes the challenge also passes on its own without an image round |
+| card removal stops before any button is pressed | the payments page follows the **account's language** (e.g. Indonesian), so the English labels are not found | already handled: `detach_on_google` text matching is bilingual (EN+ID) and accepts two variants of the verify button. `?hl=en` does not override the account language |
+| the approval percentage never completes during card removal | waiting for the owner's tap on the phone (max 300 seconds) | remind the owner; the subscription + cancel stay valid even if this step fails |
+| card removal spins until timeout, no button pressed | on the Play page the card is shown without a Remove button; Remove hides behind the “Edit payment methods” link | already handled: the card branch now falls through to the Edit link. The payments-center reauth page (“Verify to see payments info”) is also recognized; its button is “Verify it's you” |
+| the card is written as `verification not proven` even though the card is already gone | the old checker did not recognize the payments center's empty state | already handled: “Add payment method” / “No payment methods yet” now count as proof of absence (the old needle “Add a payment” did not match that button text) |
+| card number digits go missing while typing (the field ends up 1–2 digits short) | the form modal is not yet stable when typing starts | already handled: a 2.5 s settle pause + per-field digit read-back with retyping; a form that is still intact after Save is detected early and refilled |
+| `GUARD … FAILED` / a non-zero amount is read | the offer changed or the layer token does not apply | **stop completely**, report the dialog text to the owner; do not commit |
+| `GUARD … FAILED` at layer 2/3 even though the dialog is “Upcoming charges” | the per-product itemisation is printed *after* its future total, far from any start marker | already handled in the guard: an amount that is an exact itemisation (≥2 components, summing exactly) of a single marker-bound future total counts as bound. Outside that pattern it remains **stop completely** |
+| an account that used to be a family member of a Pro account | family history does **not** block AI Pro trial stacking (proven in the 2026-11-09 run) | run it as usual; the only effect: the YouTube Premium add-on trial is not eligible (the dialog says so) and that add-on dies with the cancel too |
 
-## Menjalankan terawasi (pola supervisor)
+## Running supervised (the supervisor pattern)
 
-Agent yang mengawasi run secara langsung bisa menjalankan alur apa adanya
-sambil menangani reCAPTCHA sendiri, tanpa mengubah repo: impor
-`tasks/subscribe_flow.py` sebagai modul, timpa `ensure_card`-nya dengan
-versi yang — setelah klik Save — memantau frame tantangan reCAPTCHA,
-mengambil screenshot + geometri tile tantangan, menjawab tile yang benar
-(bisa lewat klik mouse Playwright, atau injeksi input X11 bila browser
-headed di Xvfb), menekan Verify/Next, lalu memanggil `main()` bawaan modul
-dengan `sys.argv = ["subscribe_flow.py", "<email>"]`. Semua guard, cancel,
-dan pelepasan kartu tetap dijalankan kode asli. Bukti keberhasilan dua akun
-nyata diperoleh dengan pola ini.
+An agent supervising a run directly can run the flow as-is
+while handling the reCAPTCHA itself, without changing the repo: import
+`tasks/subscribe_flow.py` as a module, override its `ensure_card` with
+a version that — after clicking Save — watches the reCAPTCHA challenge frames,
+takes a screenshot + the challenge tile geometry, answers the correct tiles
+(via Playwright mouse clicks, or X11 input injection if the browser is
+headed on Xvfb), presses Verify/Next, then calls the module's built-in `main()`
+with `sys.argv = ["subscribe_flow.py", "<email>"]`. All guard, cancel,
+and card-removal steps are still run by the original code. Proof of success on two real accounts
+was obtained with this pattern.
 
-Di VM efemeral (unit systemd dan proses tidak selalu selamat dari
-penggantian mesin), simpan skrip bootstrap idempoten di direktori home —
-bukan hanya di `/etc` — yang menulis ulang unit, menyegarkan kredensial
-proxy egress dari env sesi saat ini, dan menyalakan ulang tumpukan
-(relay, Xvfb, konsol) sebelum run dimulai.
+On an ephemeral VM (systemd units and processes do not always survive a
+machine replacement), keep an idempotent bootstrap script in the home directory —
+not only in `/etc` — that rewrites the units, refreshes the egress-proxy
+credentials from the current session env, and restarts the stack
+(relay, Xvfb, console) before a run starts.
 
-## Selesai & laporkan
+## Finish & report
 
-Laporkan hanya: akun (email), plan aktif, tanggal berakhir, status cancel,
-status kartu (terlepas / tertinggal), dan total dibayar ($0). Tanpa rahasia
-apa pun. Bila ada patch lokal yang terbukti perlu, buat branch baru
-`fix/<ringkasan>` dan commit hanya file kode — konfigurasi spesifik mesin
-(env, alamat proxy, unit service) tidak masuk repo.
+Report only: the account (email), the active plan, the end date, the cancel
+status, the card status (removed / left behind), and the total paid ($0). No secrets
+at all. If a local patch proves necessary, create a new branch
+`fix/<summary>` and commit only code files — machine-specific configuration
+(env, proxy addresses, service units) does not go into the repo.

@@ -152,7 +152,7 @@ def _store_load() -> dict[str, str]:
 def _store_save(data: dict[str, str]) -> None:
     path = _store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Nama tmp unik per proses: dua penulis tidak saling menimpa file temp.
+    # Unique tmp name per process: two writers never overwrite each other's temp file.
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -161,8 +161,8 @@ def _store_save(data: dict[str, str]) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         if sys.platform == "win32":
-            # Di NTFS, pembaca yang sedang membuka vault bisa membuat os.replace
-            # gagal sesaat dengan PermissionError — coba lagi beberapa kali.
+            # On NTFS, a reader holding the vault open can make os.replace fail
+            # briefly with PermissionError — retry a few times.
             for attempt in range(10):
                 try:
                     os.replace(tmp, path)
@@ -174,7 +174,7 @@ def _store_save(data: dict[str, str]) -> None:
         else:
             os.replace(tmp, path)
     except BaseException:
-        # Jangan tinggalkan tmp yatim saat tulis/replace gagal di tengah.
+        # Do not leave an orphaned tmp file when a write/replace fails midway.
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
@@ -278,7 +278,7 @@ def backend() -> str:
 
 def describe() -> str:
     if sys.platform == "win32":
-        file_label = f"file (ACL profil user), no keyring — {_store_path()}"
+        file_label = f"file (user profile ACL), no keyring — {_store_path()}"
     else:
         file_label = f"file 0600, no keyring — {_store_path()}"
     return {

@@ -74,10 +74,11 @@ class Runner:
             try:
                 await asyncio.wait_for(self.proc.wait(), timeout=15)
             except asyncio.TimeoutError:
-                # terminate() yang tidak mempan tidak cukup: di Windows ia
-                # hanya membunuh runner (driver Playwright + Chrome jadi
-                # yatim dan mengunci profil), di POSIX anak yang bandel pun
-                # bisa tertinggal. Eskalasi: bunuh seluruh pohon prosesnya.
+                # A terminate() that does not take effect is not enough: on
+                # Windows it only kills the runner (the Playwright driver +
+                # Chrome become orphans and lock the profile), and on POSIX a
+                # stubborn child can be left behind too. Escalate: kill the
+                # entire process tree.
                 await asyncio.to_thread(_kill_tree, self.proc.pid)
                 await self.proc.wait()
 
@@ -90,13 +91,13 @@ class Runner:
         start = max(1, min(3, int(row["step"] or 0) or 1))
         if not SCRIPT.exists():
             await db.execute("UPDATE accounts SET status = 'failed' WHERE id = ?", (acc_id,))
-            print(f"skrip tidak ada: {SCRIPT}", flush=True)
+            print(f"script not found: {SCRIPT}", flush=True)
             return
 
         self.current = acc_id
         self.stopping = False
-        # step jangan di-nol-kan: nilai tersimpan adalah titik lanjut kalau
-        # proses mati di tengah; run menghitung titik awalnya sendiri.
+        # Do not zero the step: the stored value is the resume point if the
+        # process dies midway; the run computes its own starting point.
         await db.execute("UPDATE accounts SET status = 'running' WHERE id = ?", (acc_id,))
 
         # A hard-killed Chrome leaves a lock beside the profile and the next launch
@@ -110,8 +111,8 @@ class Runner:
         log_path = settings.artifacts_dir / f"run_{acc_id}_{int(time.time())}.log"
         timed_out = False
         with open(log_path, "wb") as fh:
-            # Paksa UTF-8 di subprocess: di Windows stdout ke file memakai
-            # codepage lokal (cp1252) dan log alur penuh karakter non-ASCII.
+            # Force UTF-8 in the subprocess: on Windows, stdout to a file uses
+            # the local codepage (cp1252) and the flow log is full of non-ASCII characters.
             self.proc = await asyncio.create_subprocess_exec(
                 sys.executable, str(SCRIPT), email, "--from", str(start),
                 cwd=str(BASE), stdout=fh, stderr=asyncio.subprocess.STDOUT,
@@ -120,17 +121,17 @@ class Runner:
             try:
                 await asyncio.wait_for(self.proc.wait(), timeout=settings.run_timeout)
             except asyncio.TimeoutError:
-                # Run menggantung tidak boleh menyandera antrean selamanya:
-                # bunuh pohon prosesnya (Chrome ikut di bawah runner) dan
-                # tandai gagal — bukan cancelled, itu untuk stop dari user.
+                # A hung run must not hold the queue hostage forever: kill its
+                # process tree (Chrome sits under the runner) and mark it
+                # failed — not cancelled, that is for a user stop.
                 timed_out = True
                 await asyncio.to_thread(_kill_tree, self.proc.pid)
                 await self.proc.wait()
 
         if timed_out:
             with open(log_path, "a", encoding="utf-8") as fh:
-                fh.write(f"\n[queue] run melewati batas {settings.run_timeout}s"
-                         " — proses dihentikan, akun ditandai failed\n")
+                fh.write(f"\n[queue] run exceeded the {settings.run_timeout}s limit"
+                         " — process stopped, account marked failed\n")
 
         code = self.proc.returncode if self.proc else -1
         self.proc = None
@@ -170,8 +171,8 @@ _ACC_ID = re.compile(r"^acc_[0-9a-f]{12}$")
 
 
 def latest_log(acc_id: str) -> Path | None:
-    # acc_id mentah dari URL tidak boleh jadi pola glob: ".." atau "*" di
-    # dalamnya bisa menunjuk file di luar direktori log akun ini.
+    # A raw acc_id from the URL must not become a glob pattern: ".." or "*"
+    # in it could point at files outside this account's log directory.
     if not _ACC_ID.match(acc_id):
         return None
     files = sorted(settings.artifacts_dir.glob(f"run_{acc_id}_*.log"))

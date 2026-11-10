@@ -1,334 +1,334 @@
 # GaiConsole
 
-Konsol lokal (`127.0.0.1`) untuk otomasi browser multi-akun. Jalan di **macOS**,
-**Ubuntu/Linux**, dan **Windows**: Chrome asli kalau ada, Chromium sistem kalau
-tidak, browser bawaan Playwright sebagai jaring terakhir.
+A local console (`127.0.0.1`) for multi-account browser automation. Runs on **macOS**,
+**Ubuntu/Linux**, and **Windows**: a real Chrome if present, a system Chromium if
+not, and Playwright's bundled browser as the last resort.
 
 | platform | status |
 |---|---|
-| Ubuntu / Linux | diuji: Python 3.12.3 aarch64, Chromium sistem + bundled, backend `file` dan `secret-tool` |
-| macOS | jalur lama dipertahankan apa adanya (Keychain, `/Applications/Google Chrome.app`) |
-| Windows | baru: Python 3.12/3.13, Chrome/Chromium instalasi standar atau bundled, backend `file` di `%LOCALAPPDATA%` — jalur kode diverifikasi lewat simulasi platform, belum diuji di mesin Windows asli |
+| Ubuntu / Linux | tested: Python 3.12.3 aarch64, system + bundled Chromium, `file` and `secret-tool` backends |
+| macOS | the legacy path is kept as-is (Keychain, `/Applications/Google Chrome.app`) |
+| Windows | new: Python 3.12/3.13, standard-install Chrome/Chromium or bundled, `file` backend in `%LOCALAPPDATA%` — the code path is verified via platform simulation, not yet tested on a real Windows machine |
 
-## Postur keamanan
+## Security posture
 
-Dependensi langsung dijaga seminimal mungkin — **9 paket**, semuanya
-repositori kanonik:
+Direct dependencies are kept to a minimum — **9 packages**, all from
+canonical repositories:
 
-| paket | pemelihara |
+| package | maintainer |
 |---|---|
 | fastapi, uvicorn | Encode / `fastapi/fastapi` |
-| python-multipart | `Kludex/python-multipart` (form impor) |
+| python-multipart | `Kludex/python-multipart` (import forms) |
 | jinja2 | Pallets |
 | pydantic, pydantic-settings | `pydantic/*` |
 | aiosqlite | omnilib |
 | psutil | Giampaolo Rodola |
 | playwright | Microsoft |
 
-Yang sengaja **tidak** dipakai:
+Deliberately **not** used:
 
-- `keyring` → pakai CLI bawaan OS. macOS: `security` (Keychain), Linux:
-  `secret-tool` (libsecret → gnome-keyring/KWallet lewat D-Bus). Secret masuk
-  lewat stdin, hanya atribut yang ada di argv, jadi nilainya tidak pernah
-  muncul di `ps`. Kalau tidak ada keyring yang hidup (server headless,
-  container, SSH tanpa sesi desktop), backend jatuh ke **file 0600** di dalam
-  data dir 0700 — lebih lemah dari keyring, karena itu `run.sh --check`,
-  `/healthz`, dan log boot selalu menyebut backend yang benar-benar dipakai.
-  Windows tidak punya CLI keyring bawaan, jadi di sana backend selalu **file**
-  di `%LOCALAPPDATA%\GaiConsole`; mode POSIX tidak berlaku, proteksinya
-  adalah ACL profil user (hanya user pemilik + admin yang bisa membaca
-  LocalAppData-nya sendiri), dan `describe()` menyebutnya apa adanya.
-- `pyotp` → TOTP RFC 6238 ditulis dengan `hmac`+`base64` stdlib, diuji
-  terhadap vektor RFC 6238 Appendix B (`tests/selftest.py`).
-- `email-validator` → regex sederhana, cukup untuk alamat Google.
-- `uvicorn[standard]` → `uvicorn` polos, membuang httptools/uvloop/watchfiles/
+- `keyring` → the OS's built-in CLI is used instead. macOS: `security` (Keychain), Linux:
+  `secret-tool` (libsecret → gnome-keyring/KWallet over D-Bus). Secrets enter
+  via stdin; only attributes appear in argv, so values never show up in
+  `ps`. When no live keyring exists (headless server, container, SSH without a
+  desktop session), the backend falls back to a **0600 file** inside the
+  0700 data dir — weaker than a keyring, which is why `run.sh --check`,
+  `/healthz`, and the boot log always state the backend that is actually used.
+  Windows has no built-in keyring CLI, so there the backend is always **file**
+  in `%LOCALAPPDATA%\GaiConsole`; POSIX modes do not apply, protection
+  is the user profile ACL (only the owning user + admins can read
+  their own LocalAppData), and `describe()` says so plainly.
+- `pyotp` → RFC 6238 TOTP written with stdlib `hmac`+`base64`, tested
+  against the RFC 6238 Appendix B vectors (`tests/selftest.py`).
+- `email-validator` → a simple regex, sufficient for Google addresses.
+- `uvicorn[standard]` → plain `uvicorn`, dropping httptools/uvloop/watchfiles/
   websockets/pyyaml.
 
-Pengerasan lain:
+Other hardening:
 
-- `requirements.lock` di-pin penuh **dengan sha256**, dipasang lewat
-  `pip install --require-hashes`. Lock memuat hash untuk **linux
-  (manylinux/musllinux x86_64+aarch64), darwin (arm64+x86_64), dan windows
-  (win_amd64/win_arm64)** sekaligus —
-  satu lock, tiga OS: pip memilih artifact yang cocok untuk host lalu memeriksa
-  hashnya. Tiap paket diberi komentar `# files:` yang menyebut cakupannya.
-  Regenerasi: `tools/make_lock.py` (dari venv), `--from-lock` (tanpa venv),
-  `--verify` (cocokkan lock dengan PyPI).
-- Console butuh token 43-char (`?t=` → cookie), dibandingkan constant-time.
-  Tanpa token, daftar akun tidak bisa dibaca proses lokal lain.
-- Data dir `0700`; `db.sqlite3`, `console.token`, dan `vault.json` `0600`
-  (di Windows ketiganya dilindungi ACL profil user, bukan mode POSIX).
-- Password, seed TOTP, nomor kartu, dan CVC **hanya** di vault (Keychain /
-  Secret Service / file 0600). Tabel `accounts` menyimpan handle
-  (`secret_ref`, `totp_ref`), bukan nilai.
-- `/api` tidak pernah mengembalikan nomor kartu utuh atau CVC.
+- `requirements.lock` is fully pinned **with sha256**, installed via
+  `pip install --require-hashes`. The lock contains hashes for **linux
+  (manylinux/musllinux x86_64+aarch64), darwin (arm64+x86_64), and windows
+  (win_amd64/win_arm64)** all at once —
+  one lock, three OSes: pip picks the artifact matching the host, then verifies
+  its hash. Each package carries a `# files:` comment stating its coverage.
+  Regeneration: `tools/make_lock.py` (from the venv), `--from-lock` (without a venv),
+  `--verify` (check the lock against PyPI).
+- The console requires a 43-char token (`?t=` → cookie), compared in constant time.
+  Without the token, another local process cannot read the account list.
+- Data dir `0700`; `db.sqlite3`, `console.token`, and `vault.json` are `0600`
+  (on Windows all three are protected by the user profile ACL, not POSIX modes).
+- Passwords, TOTP seeds, card numbers, and CVCs live **only** in the vault (Keychain /
+  Secret Service / 0600 file). The `accounts` table stores handles
+  (`secret_ref`, `totp_ref`), not values.
+- `/api` never returns a full card number or CVC.
 
-## Yang dibutuhkan
+## Requirements
 
-- **Google Chrome** atau **Chromium**. Linux tanpa keduanya: `run.sh` memasang
-  Chromium bawaan Playwright (≈120 MB, sekali; batalkan dengan
+- **Google Chrome** or **Chromium**. On Linux with neither: `run.sh` installs
+  Playwright's bundled Chromium (≈120 MB, once; cancel with
   `GAI_SKIP_BROWSER_INSTALL=1`).
-- Egress **US** (VPN). Alur menunggu sampai 120 detik lalu berhenti kalau bukan US.
-- Python 3.12+ (`python3.13` lalu `python3.12`).
-- Stok akun (`email|password|seed TOTP`) dan kartu (`nomor|MM/YY|CVC`) — keduanya
-  masuk lewat UI, nilainya disimpan di vault.
+- **US** egress (VPN). The flow waits up to 120 seconds, then stops if not US.
+- Python 3.12+ (`python3.13` first, then `python3.12`).
+- An account stock (`email|password|TOTP seed`) and cards (`number|MM/YY|CVC`) — both
+  are entered via the UI, and their values are stored in the vault.
 
 ### Ubuntu
 
 ```bash
 sudo apt update
 sudo apt install -y python3.12 python3.12-venv libsecret-tools git
-# opsional — keyring sungguhan di sesi desktop:
+# optional — a real keyring in a desktop session:
 #   sudo apt install -y gnome-keyring
-# opsional — server tanpa layar yang ingin browser headed/screenshot:
+# optional — a headless server that wants a headed browser/screenshots:
 #   sudo apt install -y xvfb
 git clone https://github.com/danskiv/google-ai-pro-farming-2-years-copy
 cd google-ai-pro-farming-2-years-copy
-./run.sh --check   # python, data dir, backend secret, browser (venv dibuat dulu kalau belum ada)
+./run.sh --check   # python, data dir, secret backend, browser (creates the venv first if missing)
 ./run.sh
 ```
 
-Ubuntu 24.04 sudah membawa Python 3.12. Untuk 22.04 (bawaannya 3.10, di bawah
-`requires-python`), ambil 3.12 dari deadsnakes:
+Ubuntu 24.04 already ships Python 3.12. For 22.04 (which ships 3.10, below
+`requires-python`), get 3.12 from deadsnakes:
 
 ```bash
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt update && sudo apt install -y python3.12 python3.12-venv
 ```
 
-Chrome asli (opsional, GaiConsole menemukannya sendiri):
+Real Chrome (optional, GaiConsole finds it itself):
 
 ```bash
 wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
   | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
-sudo apt install -y google-chrome-stable   # setelah repo Google ditambahkan
+sudo apt install -y google-chrome-stable   # after adding the Google repo
 ```
 
-`libsecret-tools` hanya berguna kalau ada Secret Service yang hidup. Di server
-headless tanpa sesi desktop, `secret-tool` ada tetapi setiap panggilan gagal
-(`Cannot autolaunch D-Bus without X11 $DISPLAY`, atau
+`libsecret-tools` is only useful when a live Secret Service exists. On a
+headless server without a desktop session, `secret-tool` exists but every call fails
+(`Cannot autolaunch D-Bus without X11 $DISPLAY`, or
 `Object does not exist at path /org/freedesktop/secrets/collection/login`).
-GaiConsole mendeteksi itu lewat round-trip probe dan pindah ke backend file,
-bukan gagal saat menyimpan password pertama.
+GaiConsole detects that via a round-trip probe and moves to the file backend
+rather than failing when saving the first password.
 
 ### Windows
 
-Prasyarat: **Python 3.12+** dari [python.org](https://www.python.org/downloads/)
-(centang *py launcher* saat memasang) dan **Google Chrome** (atau Chromium).
-Tidak perlu Git Bash, WSL, atau Xvfb — browser jalan headed bawaan desktop
-Windows, dan tidak ada keyring CLI, jadi secret memakai backend file (lihat
-Postur keamanan).
+Prerequisites: **Python 3.12+** from [python.org](https://www.python.org/downloads/)
+(check *py launcher* during install) and **Google Chrome** (or Chromium).
+No Git Bash, WSL, or Xvfb needed — the browser runs headed on the native
+Windows desktop, and there is no keyring CLI, so secrets use the file backend (see
+Security posture).
 
 ```powershell
 git clone https://github.com/danskiv/google-ai-pro-farming-2-years-copy
 cd google-ai-pro-farming-2-years-copy
-.\run.ps1 --check   # python, data dir, backend secret, browser (venv dibuat dulu kalau belum ada)
+.\run.ps1 --check   # python, data dir, secret backend, browser (creates the venv first if missing)
 .\run.ps1
 ```
 
-`run.ps1` adalah padanan `run.sh`: membuat `.venv`, memasang dependensi
-hash-pinned dari `requirements.lock` yang sama, lalu menyajikan konsol di
-`127.0.0.1:8765` (`$env:PORT=9000; .\run.ps1` untuk port lain). `run.bat`
-hanya pembungkus tipis yang memanggil `run.ps1` (dengan bypass
-ExecutionPolicy sebatas proses itu) untuk yang lebih suka klik/Command
-Prompt. Tanpa Chrome/Chromium sistem, `run.ps1` memasang Chromium bawaan
-Playwright, sama seperti di Linux (`$env:GAI_SKIP_BROWSER_INSTALL=1` untuk
-melarangnya). Data dir Windows: `%LOCALAPPDATA%\GaiConsole`.
+`run.ps1` is the counterpart of `run.sh`: it creates `.venv`, installs the
+hash-pinned dependencies from the same `requirements.lock`, then serves the console on
+`127.0.0.1:8765` (`$env:PORT=9000; .\run.ps1` for another port). `run.bat`
+is only a thin wrapper that calls `run.ps1` (with an ExecutionPolicy
+bypass scoped to that process) for those who prefer clicking/Command
+Prompt. Without a system Chrome/Chromium, `run.ps1` installs Playwright's bundled
+Chromium, same as on Linux (`$env:GAI_SKIP_BROWSER_INSTALL=1` to
+forbid that). Windows data dir: `%LOCALAPPDATA%\GaiConsole`.
 
-Menjalankan sebagai service Windows (Task Scheduler / NSSM) belum dibungkus
-repo ini; jalankan `run.ps1` dari sesi user yang login supaya browser headed
-punya desktop.
+Running as a Windows service (Task Scheduler / NSSM) is not wrapped by
+this repo; run `run.ps1` from a logged-in user session so the headed browser
+has a desktop.
 
-## Jalankan
+## Running
 
 ```bash
 ./run.sh
 ```
 
-`run.sh` membuat venv, memasang dependensi hash-pinned bila belum ada, lalu
-menyajikan konsol di `127.0.0.1:8765` (`PORT=9000 ./run.sh` untuk port lain).
-Buka:
+`run.sh` creates the venv, installs the hash-pinned dependencies if missing, then
+serves the console on `127.0.0.1:8765` (`PORT=9000 ./run.sh` for another port).
+Open:
 
 ```
-http://127.0.0.1:8765/?t=<isi token>
+http://127.0.0.1:8765/?t=<token contents>
 ```
 
-| OS | lokasi token |
+| OS | token location |
 |---|---|
 | macOS | `~/Library/Application Support/GaiConsole/console.token` |
-| Linux | `~/.local/share/GaiConsole/console.token` (ikut `$XDG_DATA_HOME`) |
+| Linux | `~/.local/share/GaiConsole/console.token` (follows `$XDG_DATA_HOME`) |
 | Windows | `%LOCALAPPDATA%\GaiConsole\console.token` |
 
-Token juga dicetak di log saat boot. Tanpa token, daftar akun tidak bisa dibaca.
+The token is also printed in the boot log. Without the token, the account list cannot be read.
 
-Sebagai service (Ubuntu, tanpa login):
+As a service (Ubuntu, without login):
 
 ```bash
 mkdir -p ~/.config/systemd/user
 cp deploy/gai-console.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now gai-console
-loginctl enable-linger "$USER"          # tetap hidup setelah logout
+loginctl enable-linger "$USER"          # stays alive after logout
 journalctl --user -u gai-console -f
 ```
 
-Unit itu memakai `WorkingDirectory=%h/google-ai-pro-farming-2-years-copy` —
-sesuaikan kalau repo di-clone ke nama lain.
+That unit uses `WorkingDirectory=%h/google-ai-pro-farming-2-years-copy` —
+adjust it if the repo is cloned under a different name.
 
-## Variabel lingkungan
+## Environment variables
 
-Semua variabel ber-prefix `GAI_` dibaca `app/config.py`; `PORT` dan
-`GAI_SKIP_BROWSER_INSTALL` dibaca `run.sh` / `run.ps1`.
+All `GAI_`-prefixed variables are read by `app/config.py`; `PORT` and
+`GAI_SKIP_BROWSER_INSTALL` are read by `run.sh` / `run.ps1`.
 
-| variabel | arti |
+| variable | meaning |
 |---|---|
-| `PORT` | port konsol (default 8765) |
-| `GAI_BIND_HOST` | alamat bind (default `127.0.0.1` — jangan dibuka ke LAN) |
-| `GAI_BIND_PORT` | sama dengan `PORT`, menang kalau keduanya diisi |
-| `GAI_DATA_DIR` | pindahkan data dir (default: path per-OS di atas) |
+| `PORT` | console port (default 8765) |
+| `GAI_BIND_HOST` | bind address (default `127.0.0.1` — do not expose it to the LAN) |
+| `GAI_BIND_PORT` | same as `PORT`, wins if both are set |
+| `GAI_DATA_DIR` | relocate the data dir (default: the per-OS path above) |
 | `GAI_SECRET_BACKEND` | `auto` (default) / `security` / `secret-tool` / `file` |
 | `GAI_BROWSER_CHANNEL` | `auto` (default) / `chrome` / `chromium` / `bundled` |
-| `GAI_BROWSER_EXECUTABLE` | path biner browser tertentu, mis. snap Chromium |
+| `GAI_BROWSER_EXECUTABLE` | path to a specific browser binary, e.g. snap Chromium |
 | `GAI_HEADLESS` | `auto` (default) / `1` / `0` |
-| `GAI_NO_SANDBOX` | `1` kalau Chromium tidak bisa memakai sandbox (container) |
-| `GAI_BROWSER_PROXY` | `host:port` atau `http://user:pass@host:port` — proxy khusus Chromium (egress terbatas, lihat bagian berikutnya) |
-| `GAI_IGNORE_CERT_ERRORS` | `1` kalau proxy egress menandatangani ulang TLS dengan CA sendiri |
-| `GAI_MIRROR_CLIENTS2` | `1` kalau egress memblokir `clients2.google.com` — script pembayaran diambil dari mirror host Google Translate |
-| `GAI_MAX_CONCURRENT` | jumlah run paralel (default 1 — jangan dinaikkan tanpa ukur) |
-| `GAI_RUN_TIMEOUT` | batas detik satu run (default 900) |
-| `GAI_SKIP_BROWSER_INSTALL` | `1` untuk melarang `run.sh`/`run.ps1` mengunduh Chromium |
+| `GAI_NO_SANDBOX` | `1` if Chromium cannot use its sandbox (containers) |
+| `GAI_BROWSER_PROXY` | `host:port` or `http://user:pass@host:port` — a Chromium-only proxy (restricted egress, see the next section) |
+| `GAI_IGNORE_CERT_ERRORS` | `1` if the egress proxy re-signs TLS with its own CA |
+| `GAI_MIRROR_CLIENTS2` | `1` if the egress blocks `clients2.google.com` — the payments script is fetched from a Google Translate mirror host |
+| `GAI_MAX_CONCURRENT` | number of parallel runs (default 1 — do not raise without measuring) |
+| `GAI_RUN_TIMEOUT` | per-run time limit in seconds (default 900) |
+| `GAI_SKIP_BROWSER_INSTALL` | `1` to forbid `run.sh`/`run.ps1` from downloading Chromium |
 
-`auto` untuk browser berarti: Chrome di `/Applications` (macOS) atau
-`google-chrome`/`google-chrome-stable` di PATH → `channel="chrome"`; Chromium
-sistem/snap/`/opt` → `executable_path`; di Windows, `chrome.exe` dicari di
-lokasi instalasi standar (`%ProgramFiles%`, `%ProgramFiles(x86)%`,
-`%LocalAppData%`) → `executable_path`; tidak ada keduanya → Chromium bawaan
-Playwright (dengan fallback otomatis kalau channel yang diminta tidak ketemu).
+`auto` for the browser means: Chrome in `/Applications` (macOS) or
+`google-chrome`/`google-chrome-stable` in PATH → `channel="chrome"`; a system
+Chromium/snap/`/opt` → `executable_path`; on Windows, `chrome.exe` is searched in
+the standard install locations (`%ProgramFiles%`, `%ProgramFiles(x86)%`,
+`%LocalAppData%`) → `executable_path`; if neither exists → Playwright's bundled
+Chromium (with automatic fallback if the requested channel is not found).
 
-`auto` untuk headless berarti: ada `DISPLAY`/`WAYLAND_DISPLAY` → headed, tidak
-ada → headless. Permintaan headed di mesin tanpa layar **dialihkan** ke headless
-dengan peringatan di log, bukan crash. Untuk memaksa headed: `GAI_HEADLESS=0`
-(dan sediakan `xvfb-run`).
+`auto` for headless means: a `DISPLAY`/`WAYLAND_DISPLAY` exists → headed, none
+→ headless. A headed request on a display-less machine is **diverted** to headless
+with a warning in the log, not a crash. To force headed: `GAI_HEADLESS=0`
+(and provide `xvfb-run`).
 
-Backend secret yang dipilih eksplisit tetapi tidak bisa dipakai akan **gagal
-keras** saat menulis (`RuntimeError: secret-tool write failed…`), bukan menurun
-diam-diam ke file — supaya tidak ada kesan proteksi yang keliru.
+A secret backend that is explicitly selected but unusable will **fail
+hard** on write (`RuntimeError: secret-tool write failed…`) rather than silently
+downgrading to a file — so there is no false impression of protection.
 
-## Egress terbatas (VM / sandbox / proxy perusahaan)
+## Restricted egress (VM / sandbox / corporate proxy)
 
-Sebagian VM dan sandbox mengarahkan semua trafik keluar lewat satu proxy HTTP
-dengan kebijakan sendiri. Tiga gejala khasnya, dan obatnya:
+Some VMs and sandboxes route all outbound traffic through a single HTTP proxy
+with its own policies. Its three typical symptoms, and the cures:
 
-1. **Chromium tidak bisa membuka halaman apa pun** (`ERR_SSL_PROTOCOL_ERROR`,
-   atau CONNECT tunnel ditolak 403) sementara `curl` normal. Proxy semacam itu
-   sering hanya menerima klien tertentu. Jalankan relay lokal kecil yang
-   membuka CONNECT dari proses biasa lalu meneruskannya, dan arahkan hanya
-   Chromium ke relay itu:
+1. **Chromium cannot open any page** (`ERR_SSL_PROTOCOL_ERROR`,
+   or the CONNECT tunnel is refused with 403) while `curl` is fine. Such a proxy
+   often only accepts certain clients. Run a small local relay that
+   opens CONNECT from an ordinary process and forwards it, and point only
+   Chromium at that relay:
 
    ```
    GAI_BROWSER_PROXY=127.0.0.1:18080
    ```
 
-2. **Sertifikat ditolak di semua situs.** Proxy menandatangani ulang TLS
-   dengan CA internal yang tidak dikenal Chromium:
+2. **Certificates are rejected on every site.** The proxy re-signs TLS
+   with an internal CA that Chromium does not know:
 
    ```
    GAI_IGNORE_CERT_ERRORS=1
    ```
 
-3. **Dialog checkout berputar di “Loading…” selamanya.** Cek log jaringan:
-   `clients2.google.com` gagal (`ERR_TUNNEL_CONNECTION_FAILED` / 403
-   `policy_denied`). Host itu menyajikan script Google Payments
-   (`gr/gr_sync.js`, `gr/gr_full_*.js`) yang wajib dimuat dialog. File yang
-   sama persis disajikan publik oleh host proxy Google Translate
-   (`clients2-google-com.translate.goog`), jadi mode mirror mengambil
-   byte-nya dari sana dan memberikannya ke dialog:
+3. **The checkout dialog spins on “Loading…” forever.** Check the network log:
+   `clients2.google.com` fails (`ERR_TUNNEL_CONNECTION_FAILED` / 403
+   `policy_denied`). That host serves the Google Payments scripts
+   (`gr/gr_sync.js`, `gr/gr_full_*.js`) that the dialog must load. The exact
+   same files are served publicly by the Google Translate proxy host
+   (`clients2-google-com.translate.goog`), so mirror mode fetches the
+   bytes from there and hands them to the dialog:
 
    ```
    GAI_MIRROR_CLIENTS2=1
    ```
 
-Ketiganya opt-in dan tidak mengubah apa pun bila tidak diisi. Kombinasi yang
-terbukti di VM headless: relay lokal + `GAI_BROWSER_PROXY` +
-`GAI_IGNORE_CERT_ERRORS=1` + `GAI_MIRROR_CLIENTS2=1` + browser **headed** di
-Xvfb (`DISPLAY=:99`, `GAI_HEADLESS=0`) — mode headless ditolak Google di
-langkah login (`signin/rejected`).
+All three are opt-in and change nothing when unset. The combination
+proven on a headless VM: a local relay + `GAI_BROWSER_PROXY` +
+`GAI_IGNORE_CERT_ERRORS=1` + `GAI_MIRROR_CLIENTS2=1` + a **headed** browser on
+Xvfb (`DISPLAY=:99`, `GAI_HEADLESS=0`) — headless mode is rejected by Google at the
+login step (`signin/rejected`).
 
-## Verifikasi
+## Verification
 
 ```bash
-.venv/bin/python tests/selftest.py     # 19 test: TOTP RFC, DB, vault, guard, browser, lock
-python3 tools/make_lock.py --verify    # hash lock vs PyPI, tanpa venv
-./run.sh --check                       # python, data dir, backend secret, browser
+.venv/bin/python tests/selftest.py     # 19 tests: TOTP RFC, DB, vault, guard, browser, lock
+python3 tools/make_lock.py --verify    # lock hashes vs PyPI, without a venv
+./run.sh --check                       # python, data dir, secret backend, browser
 curl -s localhost:8765/healthz         # {"ok":true,"secret_backend":…,"browser":…}
 ```
 
-`/healthz` sengaja menyebut backend dan browser yang hidup: itulah cara
-memastikan secret benar-benar di keyring dan bukan di file.
+`/healthz` deliberately names the live backend and browser: that is how you
+make sure secrets really are in the keyring and not in a file.
 
 ## Troubleshooting
 
-| gejala | sebab & tindakan |
+| symptom | cause & action |
 |---|---|
-| `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE` | lock dibuat di platform lain. Regenerasi: `python3 tools/make_lock.py --from-lock` |
-| `secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY` | tidak ada Secret Service. Biarkan `auto` (jatuh ke file 0600) atau jalankan di sesi desktop |
-| `Object does not exist at path /org/freedesktop/secrets/collection/login` | koleksi login belum dibuat; `gnome-keyring` butuh prompter ber-display. Pakai sesi desktop atau `xvfb-run` |
-| `Missing X server or $DISPLAY` | `GAI_HEADLESS=1`, atau `xvfb-run -a ./run.sh` |
-| `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome` | GaiConsole otomatis fallback ke Chromium bawaan; kalau bundled belum ada: `.venv/bin/python -m playwright install chromium` |
-| `No usable sandbox!` / `clone3` | container tanpa user namespace: `GAI_NO_SANDBOX=1 ./run.sh` |
-| browser mati saat buka banyak tab | `/dev/shm` kecil — sudah ditangani `--disable-dev-shm-usage` di Linux |
-| `token required` (401) | ambil `?t=` dari `console.token` (lokasi di tabel atas) atau dari log boot |
-| dialog checkout “Loading…” terus | `clients2.google.com` diblokir egress — aktifkan `GAI_MIRROR_CLIENTS2=1` (bagian Egress terbatas) |
-| halaman paket hanya berisi tombol “Get discount” | varian halaman baru; alur sudah menekan tombol “Get discount” paling kanan (kartu Google AI Pro) untuk layer 1 |
-| simpan kartu berhenti, dialog tidak kembali | kemungkinan reCAPTCHA di langkah Save card. Ulangi run (profil yang sama sering lolos tanpa tantangan), atau awasi run-nya dan selesaikan tantangannya di jendela browser. Tantangannya bisa multi-ronde (gambar berganti tiap ronde) — jawab sampai tuntas |
-| lepas kartu macet, tidak ada tombol yang ditekan | halaman pembayaran mengikuti bahasa akun (mis. Indonesia: “Edit metode pembayaran”, “Verifikasi diri Anda”); pencocokan teks pelepasan kartu sudah dwibahasa (EN+ID) |
-| login `signin/rejected` | Google menolak mode headless — pakai headed: `GAI_HEADLESS=0` + Xvfb di server |
+| `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE` | the lock was created on another platform. Regenerate: `python3 tools/make_lock.py --from-lock` |
+| `secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY` | there is no Secret Service. Leave `auto` (it falls back to a 0600 file) or run in a desktop session |
+| `Object does not exist at path /org/freedesktop/secrets/collection/login` | the login collection has not been created; `gnome-keyring` needs a prompter with a display. Use a desktop session or `xvfb-run` |
+| `Missing X server or $DISPLAY` | `GAI_HEADLESS=1`, or `xvfb-run -a ./run.sh` |
+| `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome` | GaiConsole automatically falls back to the bundled Chromium; if the bundled one is missing too: `.venv/bin/python -m playwright install chromium` |
+| `No usable sandbox!` / `clone3` | a container without user namespaces: `GAI_NO_SANDBOX=1 ./run.sh` |
+| the browser dies when opening many tabs | a small `/dev/shm` — already handled with `--disable-dev-shm-usage` on Linux |
+| `token required` (401) | take `?t=` from `console.token` (locations in the table above) or from the boot log |
+| the checkout dialog keeps showing “Loading…” | `clients2.google.com` is blocked by the egress — enable `GAI_MIRROR_CLIENTS2=1` (Restricted egress section) |
+| the plan page only contains “Get discount” buttons | a new page variant; for layer 1 the flow already clicks the rightmost “Get discount” button (the Google AI Pro card) |
+| saving the card stalls, the dialog does not return | possibly a reCAPTCHA at the Save card step. Re-run (the same profile often passes without a challenge), or supervise the run and solve the challenge in the browser window. The challenge can be multi-round (images change each round) — keep answering until it completes |
+| card removal stalls, no button is clicked | the payments page follows the account's language (e.g. Indonesian: “Edit metode pembayaran”, “Verifikasi diri Anda”); the card-removal text matching is already bilingual (EN+ID) |
+| login `signin/rejected` | Google rejects headless mode — use headed: `GAI_HEADLESS=0` + Xvfb on the server |
 
-## Cara pakai
+## How to use
 
-1. Impor kartu: `nomor|MM/YY|CVC` (satu per baris atau satu per satu).
-2. Impor akun: `email|password|seed_totp` (format sama).
-3. Tekan **jalankan** pada akun, atau **run-all** untuk antrean berurutan.
+1. Import cards: `number|MM/YY|CVC` (one per line or one at a time).
+2. Import accounts: `email|password|totp_seed` (same format).
+3. Press **run** on an account, or **run-all** for a sequential queue.
 
-Alur per akun: login → discovery term berjalan → layer 1–4 → guard tanggal →
-cancel → lepas kartu dari akun (kartu tetap di vault untuk akun berikutnya).
+Per-account flow: login → discovery of the running term → layers 1–4 → date guard →
+cancel → remove the card from the account (the card stays in the vault for the next account).
 
-Discovery memilih titik mulai sendiri: 0 bulan → layer 1, 12 → layer 2, 18 → layer 3,
-24 → hanya mencoba layer 4 lalu cancel. Jadi run yang terputus aman diulang.
+Discovery picks the starting point itself: 0 months → layer 1, 12 → layer 2, 18 → layer 3,
+24 → only tries layer 4, then cancels. So an interrupted run is safe to repeat.
 
-Dua titik tetap butuh tangan manusia di HP, dan keduanya ditunggu (5 menit login,
-300 detik hapus kartu): device prompt saat login, dan persetujuan verifikasi saat
-menghapus kartu. Kalau tidak disetujui, langganan tetap aktif 24 bulan dan cancel
-tetap berjalan — hanya kartu tertinggal di akun.
+Two points still need a human hand on the phone, and both are waited on (5 minutes for login,
+300 seconds for card removal): the device prompt at login, and the verification approval when
+removing the card. If not approved, the subscription stays active for 24 months and the cancel
+still goes through — only the card is left behind on the account.
 
-Di server tanpa layar, dua titik itu tetap berjalan (prompt-nya di HP). Kalau
-butuh melihat layar browser: `xvfb-run -a ./run.sh`, log dan screenshot tetap
-tersimpan di `artifacts/`.
+On a display-less server, those two points still work (the prompts are on the phone). If you
+need to see the browser screen: `xvfb-run -a ./run.sh`; logs and screenshots are still
+saved in `artifacts/`.
 
-## Struktur
+## Structure
 
 ```
 app/
-  main.py          rute halaman + antrean (+ /healthz: backend & browser)
-  config.py        settings, data dir per-OS, token console
-  db.py            skema SQLite + migrasi idempoten
-  vault.py         akun & kartu (nilai di vault)
-  secrets.py       backend secret: security / secret-tool / file 0600 (Windows: file, ACL profil user)
-  totp.py          TOTP stdlib
-  egress.py        cek negara egress
-  runner/          browser (resolusi channel/headless), navigasi, antrean
+  main.py          page routes + queue (+ /healthz: backend & browser)
+  config.py        settings, per-OS data dir, console token
+  db.py            SQLite schema + idempotent migrations
+  vault.py         accounts & cards (values in the vault)
+  secrets.py       secret backends: security / secret-tool / 0600 file (Windows: file, user profile ACL)
+  totp.py          stdlib TOTP
+  egress.py        egress country check
+  runner/          browser (channel/headless resolution), navigation, queue
   sites/google_one/
-    login.py       login + TOTP + tunggu device prompt
-    checkout.py    hook, arm, baca dialog
-    discover.py    peta term → layer
-    tokens.py      token per layer
-    hook.js        penulisan ulang request
+    login.py       login + TOTP + wait for the device prompt
+    checkout.py    hook, arm, read the dialog
+    discover.py    term → layer map
+    tokens.py      per-layer tokens
+    hook.js        request rewriting
 tasks/
-  subscribe_flow.py  alur utama (login → layer → cancel → lepas kartu)
-  cancel.py          cancel manual
-  probe_pay.py       pemeriksa halaman pembayaran
+  subscribe_flow.py  main flow (login → layers → cancel → remove card)
+  cancel.py          manual cancel
+  probe_pay.py       payments page checker
 deploy/
-  gai-console.service  unit systemd --user untuk Ubuntu
+  gai-console.service  systemd --user unit for Ubuntu
 tests/selftest.py
-tools/make_lock.py     lock multi-platform (linux+darwin+windows) dari PyPI JSON
+tools/make_lock.py     multi-platform lock (linux+darwin+windows) from the PyPI JSON API
 ```

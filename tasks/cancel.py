@@ -37,12 +37,12 @@ async def body(page) -> str:
 
 
 async def _acc_id_for(email: str) -> str:
-    """Selesaikan acc_id dari email lewat vault (id akun acak, bukan turunan email)."""
+    """Resolve the acc_id for an email via the vault (account ids are random, not derived from the email)."""
     settings.ensure_dirs()
     await db.migrate()
     creds = await vault.account_creds(email)
     if not creds:
-        print(f"akun tidak ada di database: {email}", flush=True)
+        print(f"account not in database: {email}", flush=True)
         raise SystemExit(2)
     return creds[0]
 
@@ -60,7 +60,7 @@ async def main() -> int:
 
         await page.locator('button:has-text("Manage")').first.click(timeout=10000)
         await asyncio.sleep(4)
-        say("KLIK", "Manage")
+        say("CLICK", "Manage")
 
         await page.locator('button:has-text("Cancel subscription")').first.click(timeout=10000)
         await asyncio.sleep(3)
@@ -69,21 +69,21 @@ async def main() -> int:
         say("DIALOG", dialog[-400:])
         m = re.search(r"canceled at the end of your billing period on ([A-Z][a-z]{2} \d{1,2}, \d{4})", dialog)
         if not m:
-            say("GAGAL", "dialog tidak menyebut tanggal berakhir — tidak dikonfirmasi")
+            say("FAILED", "dialog does not name an end date — not confirmed")
             await page.screenshot(path=str(settings.artifacts_dir / "cancel_nodate.png"))
             await asyncio.sleep(4)
             await ctx.close()
             return 1
-        say("TANGGAL", m.group(1))
+        say("DATE", m.group(1))
 
-        # tombol konfirmasi di dalam dialog (yang terakhir, bukan pemicu)
+        # the confirm button inside the dialog (the last one, not the trigger)
         await page.locator('button:has-text("Cancel subscription")').last.click(timeout=10000)
         await asyncio.sleep(6)
 
         after = await body(page)
-        say("SESUDAH", after[:400])
+        say("AFTER", after[:400])
         dates = re.findall(r"(?:Ends on|Access until|Ends)[^.]{0,40}", after, re.IGNORECASE)
-        say("PENANDA", str(dates) or "tidak ada")
+        say("MARKS", str(dates) or "none")
         await page.screenshot(path=str(settings.artifacts_dir / "cancel_result.png"))
         say("SHOT", str(settings.artifacts_dir / "cancel_result.png"))
         await asyncio.sleep(4)

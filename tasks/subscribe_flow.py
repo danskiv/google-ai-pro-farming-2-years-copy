@@ -66,8 +66,8 @@ def today() -> date:
 
 
 def near(got: list[date], expected: date, slack: int = 5) -> bool:
-    # Slack 5 hari: layer berjarak ±180 hari, jadi tetap tak ambigu, tapi
-    # selisih akhir pekan / zona waktu pada tanggal proyeksi tidak menggagalkan.
+    # 5 days of slack: layers sit ±180 days apart, so it stays unambiguous,
+    # but a weekend / timezone shift in the projected date does not fail it.
     return any(abs((d - expected).days) <= slack for d in got)
 
 
@@ -188,12 +188,12 @@ async def open_dialog(page: Page, layer: int) -> str:
                     clicked = True
                     break
         if not clicked:
-            say("DIALOG", f"tombol aksi tidak ada yang terlihat (percobaan {attempt + 1})")
+            say("DIALOG", f"no action button visible (attempt {attempt + 1})")
             continue
         text = await await_dialog(page)
         if text:
             return text
-        say("DIALOG", f"dialog tidak terbuka (percobaan {attempt + 1})")
+        say("DIALOG", f"dialog did not open (attempt {attempt + 1})")
     return ""
 
 
@@ -240,7 +240,7 @@ async def commit(page: Page) -> bool:
     sels = ['button:text-is("Subscribe")', 'button:has-text("Subscribe")']
     for attempt in range(2):
         frames = await eacq_frames(page) or list(page.frames)
-        for f in frames:                          # dialog panjang: gulir ke dasar dulu
+        for f in frames:                          # long dialog: scroll to the bottom first
             try:
                 await f.evaluate("() => { for (const e of document.querySelectorAll('*'))"
                                  " { if (e.scrollHeight > e.clientHeight + 40) e.scrollTop = e.scrollHeight; }"
@@ -250,25 +250,25 @@ async def commit(page: Page) -> bool:
         await asyncio.sleep(0.6)
         btn = await find_button(page, sels, 25.0 if attempt else 60.0, frames)
         if btn is None:
-            say("LAYER", "tombol Subscribe tidak pernah aktif")
+            say("LAYER", "the Subscribe button never became active")
             return False
         try:
             await btn.click(timeout=8000)
         except Exception as exc:
-            say("LAYER", f"klik Subscribe gagal: {type(exc).__name__}")
+            say("LAYER", f"Subscribe click failed: {type(exc).__name__}")
             continue
         for _ in range(20):
             await asyncio.sleep(1.5)
             if not await eacq_frames(page):
                 return True
             if "something went wrong" in (await frame_text(page)).lower():
-                say("LAYER", "Google menolak: Something went wrong")
+                say("LAYER", "Google refused: Something went wrong")
                 return False
             await click_in_frame(page, ['button:has-text("Not now")', 'button:has-text("Got it")',
                                         'button:has-text("Done")', 'button:has-text("Continue")'])
         if attempt == 0:
-            say("LAYER", "dialog tidak bergerak — coba tekan sekali lagi")
-    say("LAYER", "dialog masih terbuka setelah dua klik — lanjut verifikasi")
+            say("LAYER", "dialog not moving — pressing once more")
+    say("LAYER", "dialog still open after two clicks — continuing to verification")
     return True
 
 
@@ -298,26 +298,26 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
     row = await db.fetch_one("SELECT card_id FROM accounts WHERE id = ?", (acc_id,))
     card = await db.fetch_one("SELECT * FROM cards WHERE id = ?", (row["card_id"],)) if row else None
     if not card:
-        say("KARTU", "akun tidak punya kartu di vault")
+        say("CARD", "the account has no card in the vault")
         return False
     if card["status"] != "active":
-        # Kartu mati tidak boleh ditempel walau penugasannya belum sempat
-        # diputar kill_card — menempelkannya hanya membuang satu run.
-        say("KARTU", f"kartu {card['brand']}-{card['last4']} berstatus {card['status']}, "
-                     "bukan active — berhenti")
+        # A dead card must not be attached even if kill_card has not rotated
+        # the assignment yet — attaching it only wastes a run.
+        say("CARD", f"card {card['brand']}-{card['last4']} has status {card['status']}, "
+                    "not active — stopping")
         return False
 
     number = vault.secret_get(card["number_ref"])
     cvc = vault.secret_get(card["cvc_ref"])
     if not number or not cvc:
-        say("KARTU", "nomor/CVC tidak terbaca dari vault")
+        say("CARD", "number/CVC unreadable from the vault")
         return False
     exp = f"{card['exp_month']}{card['exp_year']}"
-    say("KARTU", f"tempel {card['brand']}-{card['last4']} ke akun")
+    say("CARD", f"attaching {card['brand']}-{card['last4']} to the account")
 
     if not await click_any_frame(page, ['button:has-text("Add card")', 'text="Add card"',
                                         '[role="button"]:has-text("Add card")']):
-        say("KARTU", "tombol Add card tidak ditemukan")
+        say("CARD", "the Add card button was not found")
         return False
 
     for _ in range(25):
@@ -332,13 +332,13 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                 continue
         if frame is None:
             continue
-        say("FRAME", f"form kartu di {frame.url[:70]}")
+        say("FRAME", f"card form in {frame.url[:70]}")
         inputs = frame.locator("input:visible")
         values = [number, exp, cvc]
         saved = False
         for attempt in range(2):
             if attempt:
-                say("KARTU", "form belum tuntas — isi ulang pelan")
+                say("CARD", "form not complete — refilling slowly")
                 await asyncio.sleep(2.0)
                 frame = None
                 for f in page.frames:
@@ -353,9 +353,9 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                 inputs = frame.locator("input:visible")
             await asyncio.sleep(0.4)
 
-            # Modal yang baru terbuka belum stabil menerima ketikan: run
-            # 2026-11-09 kehilangan hampir semua digit nomor (kolom berakhir
-            # berisi 2 digit) karena pengetikan mulai sebelum modal mapan.
+            # A freshly opened modal is not yet stable for typing: the
+            # 2026-11-09 run lost almost every digit of the number (the field
+            # ended up holding 2 digits) because typing began too early.
             await asyncio.sleep(2.5)
             for idx, value in enumerate(values):
                 field = inputs.nth(idx)
@@ -363,10 +363,10 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                 for _try in range(3):
                     await field.click()
                     await field.fill("")
-                    # Nomor kartu diformat ulang oleh Google sambil diketik, jadi
-                    # lebih pelan dan diberi jeda supaya field berikutnya tidak
-                    # bergeser — lalu *dibaca kembali*: digit yang tidak melekat
-                    # diketik ulang, bukan diteruskan ke Save.
+                    # Google reformats the card number while it is typed, so
+                    # type slowly with pauses so the next field does not shift —
+                    # then *read it back*: digits that did not stick are retyped,
+                    # not carried into Save.
                     await field.press_sequentially(value, delay=110 if idx == 0 else 60)
                     await asyncio.sleep(0.6)
                     try:
@@ -375,8 +375,8 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                         got = ""
                     if got == want:
                         break
-                    say("KARTU", f"kolom {idx + 1} belum melekat "
-                                 f"({len(got)}/{len(want)} digit) — ketik ulang")
+                    say("CARD", f"field {idx + 1} did not stick "
+                                 f"({len(got)}/{len(want)} digits) — retyping")
                 await asyncio.sleep(0.9 if idx == 0 else 0.45)
             if await inputs.count() >= 5:
                 try:
@@ -388,7 +388,7 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
             await asyncio.sleep(0.8)
 
             save = 'button:has-text("Save card")'
-            for _ in range(12):                   # tunggu tombol simpan aktif
+            for _ in range(12):                   # wait for the save button to enable
                 try:
                     loc = frame.locator(save).first
                     if not await loc.count():
@@ -399,10 +399,10 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                     break
                 await asyncio.sleep(0.4)
 
-            say("KARTU", "data terisi, menyimpan")
+            say("CARD", "data filled in, saving")
             if not await click_any_frame(page, ['button:has-text("Save card")',
                                                 'button:has-text("Save")', 'text=/^Save$/']):
-                say("KARTU", "tombol simpan tidak ditemukan")
+                say("CARD", "the save button was not found")
                 continue
 
             stuck = 0
@@ -413,20 +413,20 @@ async def ensure_card(page: Page, acc_id: str) -> bool:
                 if "add payment method" not in low and (
                     "today" in low or "free trial" in low
                 ):
-                    say("KARTU", "kartu tersimpan, dialog kembali ke checkout")
+                    say("CARD", "card saved, dialog back at checkout")
                     return True
                 if "add credit or debit card" in low or "all fields are required" in low:
-                    # Save tidak menelan form (digit hilang dsb.) — jangan bakar
-                    # sisa jendela tunggu; langsung ke percobaan isi ulang.
+                    # Save did not take the form (digits lost etc.) — do not burn
+                    # the rest of the wait window; go straight to a refill attempt.
                     stuck += 1
                     if stuck >= 7:
-                        say("KARTU", "form masih utuh setelah Save — isi ulang")
+                        say("CARD", "form still intact after Save — refilling")
                         break
             saved = True
-        say("KARTU", "dialog tidak kembali setelah menyimpan" if saved
-            else "kartu gagal terisi")
+        say("CARD", "dialog did not return after saving" if saved
+            else "card failed to fill")
         return False
-    say("KARTU", "form kartu tidak muncul")
+    say("CARD", "the card form never appeared")
     return False
 
 
@@ -440,12 +440,12 @@ async def run_layers(page: Page, email: str, acc_id: str, layers: list[int], dry
     end = await current_end_date(page)
     have = discover.months_from(discover.today(), end) if end else 0
     stage = discover.stage_for(have)
-    say("DISC", f"term sekarang {end or 'tanpa langganan'} → {stage.label} ({have} bulan)")
+    say("DISC", f"current term {end or 'no subscription'} → {stage.label} ({have} months)")
     capped = False
     if stage.done:
         # Already at the cap. Try the spare token once: if Google takes it the term
         # moves, if it answers "Something went wrong" the cap is real and we finish.
-        say("LAYER", "sudah 24 bulan — mencoba layer 4 sekali")
+        say("LAYER", "already at 24 months — trying layer 4 once")
         layers = [4]
         capped = True
     else:
@@ -453,15 +453,15 @@ async def run_layers(page: Page, email: str, acc_id: str, layers: list[int], dry
             await resubscribe(page)
         layers = [n for n in layers if n >= stage.start_layer]
         if not layers:
-            say("LAYER", "tidak ada layer tersisa")
+            say("LAYER", "no layers left")
             return True
         if layers[0] > 1:
-            say("LAYER", f"mulai dari layer {layers[0]} (sudah {have} bulan)")
+            say("LAYER", f"starting from layer {layers[0]} (already {have} months)")
 
     for index, layer in enumerate(layers):
         await db.execute("UPDATE accounts SET step = ?, status = 'running' WHERE email = ?",
                          (layer, email))
-        say("LAYER", f"{layer} — buka dialog")
+        say("LAYER", f"{layer} — opening dialog")
         text = await open_dialog(page, layer)
         shot = settings.artifacts_dir / f"flow_L{layer}_{int(time.time())}.png"
         await page.screenshot(path=str(shot))
@@ -469,60 +469,61 @@ async def run_layers(page: Page, email: str, acc_id: str, layers: list[int], dry
 
         if not text:
             if capped and layer == 4:
-                say("LAYER", "layer 4 ditolak — batas 24 bulan nyata")
+                say("LAYER", "layer 4 refused — the 24-month cap is real")
                 return True
-            say("LAYER", "dialog kosong — berhenti")
+            say("LAYER", "empty dialog — stopping")
             return False
         if "add payment method" in text.lower():
             if dry:
-                say("DRY", "kartu belum terpasang di akun — isi manual bila perlu")
+                say("DRY", "no card on the account yet — fill it in manually if needed")
             elif not await ensure_card(page, acc_id):
-                say("LAYER", "pengisian kartu gagal — berhenti sebelum commit")
+                say("LAYER", "card entry failed — stopping before any commit")
                 return False
             else:
                 text = await await_dialog(page, 40)
                 if not text:
-                    say("LAYER", "dialog tidak kembali setelah kartu disimpan")
+                    say("LAYER", "dialog did not return after the card was saved")
                     return False
 
         got = dates_in(text)
 
-        # Guard gabungan di semua layer: harga hari ini harus nol (guard.judge,
-        # terikat label "due today") DAN tanggal berakhir harus cocok. Dulu
-        # layer 1 hanya mengecek string "$0.00" dan layer 2-4 hanya tanggal —
-        # dialog yang menagih nyata bisa lolos dari salah satu sisi.
+        # Combined guard on every layer: today's price must be zero
+        # (guard.judge, anchored to the "due today" label) AND the end date
+        # must match. Layer 1 used to check only the "$0.00" string and
+        # layers 2-4 only the date — a dialog that really charges could slip
+        # through either side.
         verdict = guard.judge(text)
         if layer == 4:
             expected = add_months(discover.today(), 24)
             date_ok = near(got, expected) or near(got, add_months(discover.today(), 30))
         elif layer == 1:
             expected = add_months(discover.today(), 12)
-            # Akun pertama kali kadang mengiklankan trial-nya hanya dengan
-            # nama ("12-month free trial") tanpa tanggal kalender apa pun;
-            # nama itu cukup khas sebagai bukti tanggalnya.
+            # A first-time account sometimes advertises its trial by name
+            # only ("12-month free trial") with no calendar date at all;
+            # that name is distinctive enough as date evidence.
             date_ok = near(got, expected) or (not got and "12-month" in text.lower())
         else:
             expected = add_months(discover.today(), {1: 12, 2: 18, 3: 24}[layer])
             date_ok = near(got, expected)
         ok = verdict.safe and date_ok
-        say("GUARD", f"layer {layer}: harga {'ok' if verdict.safe else 'GAGAL'} "
-                     f"({verdict.reason}) · tanggal harap ±{expected} · terbaca {got or '—'}"
-                     f" → {'lolos' if ok else 'GAGAL'}")
+        say("GUARD", f"layer {layer}: price {'ok' if verdict.safe else 'FAILED'} "
+                     f"({verdict.reason}) · expected date ±{expected} · read {got or '—'}"
+                     f" → {'passed' if ok else 'FAILED'}")
         if not ok:
             print("        " + text[:280])
             if capped and layer == 4:
-                say("LAYER", "layer 4 ditolak — batas 24 bulan nyata, lanjut cancel")
+                say("LAYER", "layer 4 refused — the 24-month cap is real, continuing to cancel")
                 return True
             return False
 
         if dry:
-            say("DRY", f"layer {layer} siap, tidak ditekan")
+            say("DRY", f"layer {layer} ready, not submitted")
             continue
 
         if not await commit(page):
-            say("LAYER", "tombol Subscribe tidak bisa ditekan — berhenti")
+            say("LAYER", "the Subscribe button could not be pressed — stopping")
             return False
-        say("LAYER", f"{layer} terkirim · settlement {SETTLE_S}s")
+        say("LAYER", f"{layer} submitted · settlement {SETTLE_S}s")
         await asyncio.sleep(SETTLE_S)
         await db.execute("UPDATE accounts SET step = ? WHERE email = ?", (layer + 1, email))
 
@@ -532,8 +533,8 @@ async def run_layers(page: Page, email: str, acc_id: str, layers: list[int], dry
             expected = add_months(discover.today(), 18 if nxt == 2 else 24)
             vgot = dates_in(verify_text)
             good = near(vgot, expected)
-            say("VERIF", f"setelah layer {layer}: harap ±{expected} · terbaca {vgot or '—'} → "
-                         f"{'cocok' if good else 'TIDAK cocok'}")
+            say("VERIF", f"after layer {layer}: expected ±{expected} · read {vgot or '—'} → "
+                         f"{'match' if good else 'MISMATCH'}")
             if not good:
                 return False
     return True
@@ -544,7 +545,7 @@ async def resubscribe(page: Page) -> None:
     txt = await body(page)
     if "Canceled" not in txt or "Resubscribe" not in txt:
         return
-    say("AKTIF", "langganan berstatus Canceled — resubscribe dulu")
+    say("ACTIVE", "subscription is Canceled — resubscribing first")
     try:
         await page.locator('button:has-text("Resubscribe")').first.click(timeout=8000)
         await asyncio.sleep(4)
@@ -557,10 +558,10 @@ async def resubscribe(page: Page) -> None:
                 continue
         await asyncio.sleep(5)
     except Exception as exc:
-        say("AKTIF", f"resubscribe gagal: {type(exc).__name__}")
+        say("ACTIVE", f"resubscribe failed: {type(exc).__name__}")
         return
     after = await body(page)
-    say("AKTIF", "aktif kembali" if "Canceled" not in after else "masih Canceled")
+    say("ACTIVE", "active again" if "Canceled" not in after else "still Canceled")
 
 
 async def current_end_date(page: Page) -> "date | None":
@@ -666,25 +667,27 @@ async def detach_on_google(page: Page, last4: str) -> bool:
         await nav.goto(page, "https://play.google.com/store/paymentmethods")
         asked = saved = tried_edit = False
         absent = 0
-        # Halaman Play/payments mengikuti bahasa akun, bukan ?hl=en — akun
-        # Indonesia menampilkan label Indonesia. Semua pencocokan teks di sini
-        # dwibahasa; label tombol verifikasi pun dua varian ("Verify that
-        # it's you" di Play, "Verify it's you" di payments center).
-        for _ in range(750):                      # ±300s, tanpa tunggu tetap
+        # The Play/payments pages follow the account's language, not ?hl=en —
+        # an Indonesian account shows Indonesian labels. All text matching
+        # here is bilingual on purpose; the verify button itself has two
+        # variants ("Verify that it's you" on Play, "Verify it's you" in the
+        # payments centre).
+        for _ in range(750):                      # ±300s, no fixed waits
             if await any_text(page, "sure that it's you") or \
                     await any_text(page, "make sure it's you") or \
                     await any_text(page, "verify to see") or \
                     await any_text(page, "memastikan bahwa ini memang anda"):
-                # Re-auth hanya terkirim kalau tombolnya ditekan; kalau sesi sudah
-                # terverifikasi tombol ini memang tidak muncul lagi. Ini dicek lebih
-                # dulu karena selama verifikasi berjalan tidak ada yang bisa diklik.
+                # The re-auth is only sent when its button is pressed; once the
+                # session is verified the button no longer appears. This is
+                # checked first because while verification runs nothing else
+                # can be clicked.
                 if not asked and (
                     await click_text(page, 'text="Verify that it\'s you"')
                     or await click_text(page, 'text="Verify it\'s you"')
                     or await click_text(page, 'text="Verifikasi diri Anda"')
                 ):
                     asked = True
-                    say("KARTU", "permintaan dikirim ke HP — setujui di sana (maks 300s)")
+                    say("CARD", "request sent to the phone — approve it there (max 300s)")
             elif await any_text(page, "will be removed") or \
                     await any_text(page, "akan dihapus"):
                 if not saved and (
@@ -705,10 +708,10 @@ async def detach_on_google(page: Page, last4: str) -> bool:
                         await has_text(page, 'text="Edit payment methods"')
                         or await has_text(page, 'text="Edit metode pembayaran"')
                     ):
-                        # Di halaman Play kartu tampil tanpa tombol Remove —
-                        # Remove-nya ada di payments center di balik tautan
-                        # Edit. Tanpa jatuh ke sini loop berputar sampai
-                        # timeout (kejadian run 2026-11-09).
+                        # On the Play page the card shows without a Remove
+                        # button — Remove lives in the payments centre behind
+                        # the Edit link. Without this fall-through the loop
+                        # spins until timeout (the 2026-11-09 run incident).
                         tried_edit = True
                         await click_text(page, 'text="Edit payment methods"')
                         await click_text(page, 'text="Edit metode pembayaran"')
@@ -717,11 +720,11 @@ async def detach_on_google(page: Page, last4: str) -> bool:
                     await any_text(page, "Add payment method") or \
                     await any_text(page, "No payment methods yet") or \
                     await any_text(page, "Tambahkan metode pembayaran"):
-                # Daftar metode bayar sudah tampil (wallet maupun halaman Play) tapi
-                # kartunya tidak ada di situ — dengan nol kartu pun tautan edit hilang.
+                # The payment-method list is shown (wallet or Play page) but
+                # the card is not in it — with zero cards the edit link is gone too.
                 absent += 1
                 if absent >= 3:
-                    say("KARTU", "kartu sudah tidak ada di akun")
+                    say("CARD", "the card is no longer on the account")
                     return False
             elif not tried_edit and (
                 await has_text(page, 'text="Edit payment methods"')
@@ -731,10 +734,10 @@ async def detach_on_google(page: Page, last4: str) -> bool:
                 await click_text(page, 'text="Edit payment methods"')
                 await click_text(page, 'text="Edit metode pembayaran"')
             await asyncio.sleep(0.4)
-        say("KARTU", "verifikasi tidak selesai — kartu dilepas di vault saja")
+        say("CARD", "verification did not finish — card released in the vault only")
         return False
     except Exception as exc:
-        say("KARTU", f"pelepasan di Google gagal: {type(exc).__name__}")
+        say("CARD", f"removal on Google failed: {type(exc).__name__}")
         return False
 
 
@@ -752,15 +755,15 @@ async def release_card(page: Page, acc_id: str) -> None:
     if not card_id:
         return
     removed = await detach_on_google(page, row["last4"])
-    say("KARTU", "dilepas dari akun" if removed else "pelepasan di Google tidak terbukti")
-    # Penugasan vault tetap dibersihkan (desain), tapi kegagalan di sisi Google
-    # harus terlihat di UI lewat step_message — bukan hanya di log run.
+    say("CARD", "removed from the account" if removed else "removal on Google not proven")
+    # The vault assignment is always cleared (by design), but a Google-side
+    # failure must be visible in the UI via step_message — not only in the run log.
     await db.execute(
         "UPDATE accounts SET step_message = ? WHERE id = ?",
-        ("" if removed else "kartu belum terlepas di Google", acc_id),
+        ("" if removed else "card not yet removed on Google", acc_id),
     )
     await db.execute("UPDATE accounts SET card_id = '' WHERE id = ?", (acc_id,))
-    say("KARTU", "penugasan dilepas di vault — kartu tetap tersimpan")
+    say("CARD", "assignment released in the vault — the card itself is kept")
 
 
 async def cancel(page: Page) -> bool:
@@ -768,34 +771,34 @@ async def cancel(page: Page) -> bool:
     await asyncio.sleep(4)
     state = await body(page)
     if "Canceled" in state and "will end on" in state:
-        say("CANCEL", "sudah Canceled — dilewati")
+        say("CANCEL", "already Canceled — skipped")
         return True
     try:
         await page.locator('button:has-text("Manage")').first.click(timeout=10000)
     except Exception:
-        say("CANCEL", "tombol Manage tidak ada")
+        say("CANCEL", "the Manage button is absent")
         return False
     await asyncio.sleep(4)
     try:
         await page.locator('button:has-text("Cancel subscription")').first.click(timeout=10000)
     except Exception:
-        say("CANCEL", "tombol Cancel subscription tidak ada")
+        say("CANCEL", "the Cancel subscription button is absent")
         return False
     await asyncio.sleep(3)
 
     dialog = await body(page)
     m = re.search(r"canceled at the end of your billing period on ([A-Z][a-z]{2} \d{1,2}, \d{4})", dialog)
     if not m:
-        say("CANCEL", "dialog tidak menyebut tanggal — tidak dikonfirmasi")
+        say("CANCEL", "the dialog names no date — not confirmed")
         return False
-    say("CANCEL", f"berakhir {m.group(1)} · konfirmasi")
+    say("CANCEL", f"ends {m.group(1)} · confirming")
     await page.locator('button:has-text("Cancel subscription")').last.click(timeout=10000)
     await asyncio.sleep(6)
 
     after = await body(page)
     ok = "Canceled" in after and "will end on" in after
-    say("CANCEL", "terverifikasi: Canceled + tanggal berakhir" if ok
-        else "status 'Canceled' belum terbaca")
+    say("CANCEL", "verified: Canceled + end date" if ok
+        else "'Canceled' status not read yet")
     return ok
 
 
@@ -818,15 +821,15 @@ async def main() -> int:
 
     creds = await vault.account_creds(email)
     if not creds:
-        print(f"akun tidak ada di database: {email}", flush=True)
+        print(f"account not in the database: {email}", flush=True)
         return 2
     acc_id, password, secret = creds
     if not password:
-        print(f"password kosong di vault untuk {email} ({acc_id}) — impor ulang akunnya",
+        print(f"empty password in the vault for {email} ({acc_id}) — re-import the account",
               flush=True)
         return 2
-    print(f"akun {email} · {acc_id} · password {len(password)} char"
-          f" · totp {'ada' if secret else 'tidak ada'}", flush=True)
+    print(f"account {email} · {acc_id} · password {len(password)} chars"
+          f" · totp {'present' if secret else 'absent'}", flush=True)
 
     async with async_playwright() as p:
         ctx = await browser.launch(p, settings.profiles_dir / f"profile_{acc_id}", headless=False)
@@ -837,7 +840,7 @@ async def main() -> int:
         seen = await egress.observe(page)
         waited = 0
         while not egress.matches(WANT, seen["country"]) and waited < 120:
-            say("EGRESS", f"{seen['country']} ≠ {WANT} · tunggu {waited}/120s")
+            say("EGRESS", f"{seen['country']} ≠ {WANT} · waiting {waited}/120s")
             await asyncio.sleep(10)
             waited += 10
             await nav.goto(page, egress.ECHO)
@@ -848,22 +851,22 @@ async def main() -> int:
             return 1
 
         if not await login.ensure_signed_in(page, email, password, secret):
-            say("LOGIN", "GAGAL — selesaikan manual di jendela Chrome")
+            say("LOGIN", "FAILED — finish it manually in the Chrome window")
             await asyncio.sleep(300)
             await ctx.close()
             return 1
-        say("LOGIN", "siap")
+        say("LOGIN", "ready")
 
         finished = await run_layers(page, email, acc_id, layers, dry)
         if not finished:
-            say("STOP", "layer belum tuntas — cancel tidak dijalankan")
+            say("STOP", "layers not complete — cancel not run")
             await page.screenshot(path=str(settings.artifacts_dir / f"flow_stop_{int(time.time())}.png"))
             await asyncio.sleep(10)
             await ctx.close()
             return 1
 
         if dry:
-            say("DRY", "berhenti sebelum commit apa pun")
+            say("DRY", "stopping before any commit")
             await asyncio.sleep(10)
             await ctx.close()
             return 0
@@ -874,7 +877,7 @@ async def main() -> int:
         await db.execute("UPDATE accounts SET status = ? WHERE email = ?",
                          ("subscribed" if done else "failed", email))
         await page.screenshot(path=str(settings.artifacts_dir / f"flow_final_{int(time.time())}.png"))
-        say("SELESAI", "cancel terverifikasi" if done else "cancel belum terverifikasi")
+        say("DONE", "cancel verified" if done else "cancel not verified")
         await asyncio.sleep(10)
         await ctx.close()
     return 0 if done else 1

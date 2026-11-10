@@ -1,5 +1,5 @@
 @echo off
-rem Pembungkus tipis: semua logika ada di run.ps1 (padanan run.sh).
-rem Bypass ExecutionPolicy hanya untuk proses ini -- tidak mengubah sistem.
+rem Thin wrapper: all logic lives in run.ps1 (the run.sh counterpart).
+rem ExecutionPolicy bypass for this process only -- does not change the system.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run.ps1" %*
 exit /b %ERRORLEVEL%

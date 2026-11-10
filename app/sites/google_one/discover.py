@@ -22,10 +22,10 @@ LA = ZoneInfo("America/Los_Angeles")
 
 # months already granted -> (first layer still worth submitting, human label)
 STAGES = [
-    (0, "layer 1 (kosong)"),
-    (12, "layer 2 (12 bulan)"),
-    (18, "layer 3 (18 bulan)"),
-    (24, "selesai (24 bulan)"),
+    (0, "layer 1 (empty)"),
+    (12, "layer 2 (12 months)"),
+    (18, "layer 3 (18 months)"),
+    (24, "done (24 months)"),
 ]
 
 
@@ -62,4 +62,4 @@ def stage_for(months: int, slack: int = 1) -> Stage:
     for threshold, label in reversed(STAGES):
         if months >= threshold - slack:
             return Stage(1 if threshold == 0 else min(4, threshold // 6), months, label)
-    return Stage(1, months, f"{months} bulan")
+    return Stage(1, months, f"{months} months")

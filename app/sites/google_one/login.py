@@ -92,7 +92,7 @@ async def pass_captcha(page: Page, budget_s: float = 150.0) -> bool:
             except Exception:
                 checked = 0
             if checked:
-                print("   captcha lolos (otomatis)")
+                print("   captcha passed (automatic)")
                 await asyncio.sleep(1.0)
                 await _click(page, NEXT_SEL, timeout=3000)
                 return True
@@ -101,9 +101,9 @@ async def pass_captcha(page: Page, budget_s: float = 150.0) -> bool:
             await asyncio.sleep(2.0)
 
     if not solved:
-        print("   checkbox captcha tidak bisa diklik otomatis — selesaikan di jendela Chrome")
+        print("   captcha checkbox cannot be clicked automatically — finish it in the Chrome window")
     else:
-        print("   checkbox captcha diklik, menunggu")
+        print("   captcha checkbox clicked, waiting")
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + budget_s
@@ -129,17 +129,17 @@ async def pass_captcha(page: Page, budget_s: float = 150.0) -> bool:
                 done = True
 
         if done:
-            print("   captcha lolos")
+            print("   captcha passed")
             await asyncio.sleep(1.0)
             await _click(page, NEXT_SEL, timeout=3000)
             return True
 
         if not announced and loop.time() > deadline - budget_s + 15:
-            print("   >>> kalau muncul kotak gambar, pilih di jendela Chrome (maks 150s) <<<")
+            print("   >>> if an image grid appears, solve it in the Chrome window (max 150s) <<<")
             announced = True
         await asyncio.sleep(2.0)
 
-    print("   captcha tidak selesai dalam batas waktu")
+    print("   captcha not finished within the time budget")
     return False
 
 
@@ -174,24 +174,24 @@ async def pass_screens(page: Page, email: str, password: str, secret: str,
         ):
             wait = totp.wait_hint()
             if wait:
-                print(f"   kode hampir kedaluwarsa, tunggu {wait}s")
+                print(f"   code about to expire, waiting {wait}s")
                 await asyncio.sleep(wait)
             code = totp.code(secret)
             if not code:
-                print("   seed TOTP tidak terbaca")
+                print("   TOTP seed unreadable")
                 return False
-            print(f"   kirim kode 2FA {code[:2]}••••")
+            print(f"   submitting 2FA code {code[:2]}••••")
             if await _fill(page, totp_field, code):
                 await _click(page, NEXT_SEL)
             await asyncio.sleep(4.0)
             continue
 
         if (sel := await _visible(page, PWD_SEL)):
-            print(f"   isi password (langkah {step + 1})")
+            print(f"   entering password (step {step + 1})")
             if not await _fill(page, sel, password):
                 # Do not click Next on an empty field: that burns the step budget
                 # on a silently-swallowed click and ends in a false "stuck".
-                print("   password tidak masuk — ulangi langkah ini")
+                print("   password did not land — retrying this step")
                 await asyncio.sleep(2.0)
                 continue
             await _click(page, NEXT_SEL)
@@ -199,9 +199,9 @@ async def pass_screens(page: Page, email: str, password: str, secret: str,
             continue
 
         if (sel := await _visible(page, EMAIL_SEL)):
-            print(f"   isi email (langkah {step + 1})")
+            print(f"   entering email (step {step + 1})")
             if not await _fill(page, sel, email):
-                print("   email tidak masuk — ulangi langkah ini")
+                print("   email did not land — retrying this step")
                 await asyncio.sleep(2.0)
                 continue
             await _click(page, NEXT_SEL)
@@ -209,7 +209,7 @@ async def pass_screens(page: Page, email: str, password: str, secret: str,
             continue
 
         if any(k in text for k in ("Not now", "Skip", "Confirm your recovery", "Add recovery")):
-            print("   lewati prompt pemulihan")
+            print("   skipping the recovery prompt")
             await _click(page, SKIP_SEL, timeout=3000)
             await asyncio.sleep(2.0)
             continue
@@ -217,7 +217,7 @@ async def pass_screens(page: Page, email: str, password: str, secret: str,
         # Device prompt: nothing to type, the human approves on their phone. Wait
         # rather than burn the step budget, or the run dies mid-login.
         if any(h in low for h in DEVICE_HINTS) and not await _visible(page, PWD_SEL + TOTP_SEL):
-            print("   >>> device prompt: setujui di HP Anda (maks 5 menit, tidak dihitung langkah) <<<")
+            print("   >>> device prompt: approve it on your phone (max 5 min, not counted as a step) <<<")
             for _ in range(60):
                 if "accounts.google.com" not in page.url:
                     return True
@@ -225,14 +225,14 @@ async def pass_screens(page: Page, email: str, password: str, secret: str,
                 fresh = (await _body(page, 1200)).lower()
                 if not any(h in fresh for h in DEVICE_HINTS):
                     break
-            print("   lanjut setelah device prompt")
+            print("   continuing after the device prompt")
             continue
 
         if await _click(page, NEXT_SEL, timeout=2500):
             await asyncio.sleep(2.5)
             continue
 
-        print(f"   menunggu ({step + 1}/{max_steps}) · url={page.url[:70]}")
+        print(f"   waiting ({step + 1}/{max_steps}) · url={page.url[:70]}")
         await asyncio.sleep(2.5)
     return "accounts.google.com" not in page.url
 
@@ -245,7 +245,7 @@ async def pass_reauth(page: Page, email: str, password: str, secret: str) -> boo
             el = page.locator(sel).first
             if await el.count() and await el.is_visible():
                 await el.click(timeout=6000)
-                print("   tombol verifikasi ditekan")
+                print("   verify button pressed")
                 break
         except Exception:
             continue
@@ -258,7 +258,7 @@ async def ensure_signed_in(page: Page, email: str, password: str, secret: str) -
     await nav.goto(page, PLANS_PLAIN)
     await asyncio.sleep(2.5)
     if await is_signed_in(page):
-        print("   profil sudah tertaut")
+        print("   profile already signed in")
         return True
 
     await nav.goto(page, SIGNIN)
@@ -271,6 +271,6 @@ async def ensure_signed_in(page: Page, email: str, password: str, secret: str) -
     if await is_signed_in(page):
         return True
 
-    print(f"   belum berhasil masuk · url={page.url[:90]}")
-    print(f"   teks: {(await _body(page, 400)).replace(chr(10), ' | ')[:400]}")
+    print(f"   sign-in not complete yet · url={page.url[:90]}")
+    print(f"   text: {(await _body(page, 400)).replace(chr(10), ' | ')[:400]}")
     return False

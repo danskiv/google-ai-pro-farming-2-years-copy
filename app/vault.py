@@ -97,7 +97,7 @@ def brand_of(number: str) -> str:
 async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
     email = email.strip().lower()
     if not _EMAIL.match(email) or not password:
-        return False, f"baris tidak valid: {email or '(kosong)'}"
+        return False, f"invalid line: {email or '(empty)'}"
     row = await db.fetch_one("SELECT id FROM accounts WHERE email = ?", (email,))
     now = int(time.time())
     if row:
@@ -105,12 +105,12 @@ async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
         secret_put(f"{acc_id}:password", password)
         if seed:
             secret_put(f"{acc_id}:totp", totp.normalize(seed))
-            # totp_ref harus ikut ditulis: akun yang pertama masuk tanpa seed
-            # kolomnya kosong, dan run melewatinya seolah tak punya TOTP.
+            # totp_ref must be written too: an account first imported without
+            # a seed has the column empty, and runs skip it as if it had no TOTP.
             await db.execute("UPDATE accounts SET totp_ref = ? WHERE id = ?",
                              (f"{acc_id}:totp", acc_id))
-        # Re-impor adalah jalur pemulihan akun gagal: segarkan penugasan kartu
-        # (kartu lama bisa sudah mati) dan kembalikan failed -> pending.
+        # Re-import is the recovery path for a failed account: refresh the
+        # card assignment (the old card may be dead) and return failed -> pending.
         await db.execute(
             "UPDATE accounts SET updated_at = ?,"
             " status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END"
@@ -118,7 +118,7 @@ async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
             (now, acc_id),
         )
         await attach_card(acc_id)
-        return False, f"{email} sudah ada — diperbarui"
+        return False, f"{email} already exists — updated"
 
     acc_id = "acc_" + _rand.token_hex(6)
     secret_put(f"{acc_id}:password", password)
@@ -130,7 +130,7 @@ async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
         (acc_id, email, f"{acc_id}:password", f"{acc_id}:totp" if seed else "", "", now, now),
     )
     await attach_card(acc_id)
-    return True, f"{email} ditambahkan"
+    return True, f"{email} added"
 
 
 async def backfill_cards() -> int:
@@ -151,7 +151,7 @@ async def import_accounts(blob: str) -> list[str]:
             continue
         parsed = parse_account(line)
         if not parsed:
-            notes.append(f"dilewati: {line[:48]}")
+            notes.append(f"skipped: {line[:48]}")
             continue
         ok, note = await add_account(*parsed)
         notes.append(note)
@@ -168,11 +168,11 @@ async def delete_account(acc_id: str) -> None:
 async def add_card(number: str, month: str, year: str, cvc: str) -> tuple[bool, str]:
     number = re.sub(r"[^\d]", "", number)
     if not _CARD_NUMBER.match(number):
-        return False, "nomor kartu tidak valid"
+        return False, "invalid card number"
     row = await db.fetch_one("SELECT id FROM cards WHERE last4 = ? AND exp_month = ? AND exp_year = ?",
                              (number[-4:], month, year))
     if row:
-        return False, f"{brand_of(number)}-{number[-4:]} sudah ada"
+        return False, f"{brand_of(number)}-{number[-4:]} already exists"
 
     card_id = "card_" + _rand.token_hex(6)
     secret_put(f"{card_id}:number", number)
@@ -184,7 +184,7 @@ async def add_card(number: str, month: str, year: str, cvc: str) -> tuple[bool, 
          brand_of(number), month, year, int(time.time())),
     )
     await backfill_cards()
-    return True, f"{brand_of(number)}-{number[-4:]} ditambahkan"
+    return True, f"{brand_of(number)}-{number[-4:]} added"
 
 
 async def import_cards(blob: str) -> list[str]:
@@ -195,7 +195,7 @@ async def import_cards(blob: str) -> list[str]:
             continue
         parsed = parse_card(line)
         if not parsed:
-            notes.append(f"dilewati: {line[:48]}")
+            notes.append(f"skipped: {line[:48]}")
             continue
         ok, note = await add_card(*parsed)
         notes.append(note)
@@ -206,9 +206,9 @@ async def kill_card(card_id: str, dead: bool = True) -> None:
     await db.execute("UPDATE cards SET status = ? WHERE id = ?",
                      ("dead" if dead else "active", card_id))
     if dead:
-        # Lepas penugasan kartu mati sebelum backfill: tanpa ini akun tetap
-        # menunjuk kartu dead dan backfill (yang hanya mengisi card_id kosong)
-        # tidak pernah memutarnya ke kartu aktif.
+        # Release dead-card assignments before backfill: without this the
+        # account keeps pointing at the dead card and backfill (which only
+        # fills an empty card_id) never rotates it to an active card.
         await db.execute("UPDATE accounts SET card_id = '' WHERE card_id = ?", (card_id,))
     await backfill_cards()
 

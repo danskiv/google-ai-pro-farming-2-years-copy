@@ -33,7 +33,7 @@ MONEY = re.compile(r"(?:US\s?\$|USD|\$|Rp\.?|€)\s?[\d.,]+", re.IGNORECASE)
 ZERO = re.compile(r"(?:US\s?\$|USD|\$|Rp\.?|€)\s?0(?:[.,]00)?\b", re.IGNORECASE)
 FREE_WORD = re.compile(r"\b(free|gratis)\b|\b0\s?%|\btrial\b", re.IGNORECASE)
 
-# Label yang menambatkan nominal ke tagihan *hari ini*: "Due today $0.00",
+# Label that anchors an amount to *today's* charge: "Due today $0.00",
 # "$0.00 due today", "Total today …", "tagihan hari ini …".
 TODAY_LABEL = re.compile(
     r"(due\s+today|total\s+today|charged\s+today|pay\s+today|amount\s+due|"
@@ -67,15 +67,15 @@ _START_HINT = re.compile(
     r"starting|starts\s+on|then\b|after\b|mulai\s+tanggal",
     re.IGNORECASE,
 )
-# "You won't be charged today" adalah janji *tidak* menagih; label di
-# belakang negasi seperti ini tidak menambatkan nominal apa pun.
+# "You won't be charged today" is a promise *not* to charge; a label
+# sitting behind a negation like this anchors no amount at all.
 _NEGATED = re.compile(r"(?:won'?t|will\s+not|never|not)\s+be\s*$|no\s+charge\s*$", re.IGNORECASE)
-# "Today $0.00": kata today telanjang tepat sebelum nominal juga menambatkan
-# nominal itu ke hari ini, walau tanpa label "due/total" di depannya.
+# "Today $0.00": a bare "today" right before an amount also anchors that
+# amount to today, even without a "due/total" label in front of it.
 _TODAY_WORD = re.compile(r"\btoday\b", re.IGNORECASE)
-# Tapi today yang didahului penanda rentang bukan label tagihan: pada
-# "starting today …" / "free until today" kata itu menandai kapan harga
-# berkala mulai/berakhir, bukan tagihan hari ini.
+# But a "today" preceded by a range marker is not a billing label: in
+# "starting today …" / "free until today" the word marks when the recurring
+# price starts/ends, not a charge due today.
 _BARE_SKIP = re.compile(r"(?:starting|until)\s*$", re.IGNORECASE)
 
 
@@ -116,9 +116,9 @@ def _today_amounts(flat: str, hits: list[tuple[int, int, str]]) -> list[str]:
         before = [h for h in hits if label.start() - 24 <= h[1] <= label.start()]
         if before:
             found.append(before[-1][2])
-    # "Today $X": today telanjang menambatkan nominal terdekat sesudahnya.
-    # Lewati today yang sudah jadi bagian label di atas (sudah dihitung)
-    # dan yang didahului penanda rentang ("starting"/"until").
+    # "Today $X": a bare "today" anchors the nearest amount after it.
+    # Skip a "today" that is already part of a label above (counted there)
+    # and one preceded by a range marker ("starting"/"until").
     for word in _TODAY_WORD.finditer(flat):
         if any(start <= word.start() < end for start, end in label_spans):
             continue
@@ -267,30 +267,30 @@ def _components_explain(
 def judge(text: str) -> Verdict:
     flat = " ".join(re.sub(r"[\r\n]+", " · ", text).split())
     if not flat:
-        return Verdict(False, [], "modal kosong / tak terbaca")
+        return Verdict(False, [], "empty / unreadable dialog")
     hits = [(m.start(), m.end(), m.group(0)) for m in MONEY.finditer(flat)]
     amounts = [h[2] for h in hits]
 
     if _has_unpriced_charge_label(flat, hits):
-        return Verdict(False, amounts, "label biaya tidak memiliki nominal yang terbaca")
+        return Verdict(False, amounts, "charge label without a readable amount")
 
     today = _today_amounts(flat, hits)
     if today:
         if any(not _is_zero(a) for a in today):
-            return Verdict(False, amounts, "tagihan hari ini bukan nol")
+            return Verdict(False, amounts, "due today is not zero")
         nonzero = [h for h in hits if not _is_zero(h[2])]
         if not nonzero:
-            return Verdict(True, amounts, "total hari ini nol")
+            return Verdict(True, amounts, "due today is zero")
         if all(_future_scoped(flat, h, hits) for h in nonzero):
-            return Verdict(True, amounts, "total hari ini nol; harga lain terikat ke masa depan")
-        return Verdict(False, amounts, "ada biaya tambahan tanpa waktu masa depan yang jelas")
+            return Verdict(True, amounts, "due today is zero; other prices are future-scoped")
+        return Verdict(False, amounts, "extra charge without a clear future time")
 
     if not amounts:
-        return Verdict(False, amounts, "tidak ada nominal yang bisa dibaca")
+        return Verdict(False, amounts, "no readable amount")
 
     nonzero = [h for h in hits if not _is_zero(h[2])]
     if not nonzero:
-        return Verdict(True, amounts, "terbaca total nol")
+        return Verdict(True, amounts, "total reads zero")
     # Without a due-today amount, positive prices pass only with future
     # evidence. With a zero amount, each positive price needs its own explicit
     # temporal qualifier. Without a zero amount or free wording (the "Upcoming
@@ -301,13 +301,13 @@ def judge(text: str) -> Verdict:
     if has_free_evidence:
         scoped = [_future_scoped(flat, h, hits) for h in hits]
         if all(scoped[i] for i in nonzero_idx):
-            return Verdict(True, amounts, "nominal bukan nol hanya harga masa depan")
+            return Verdict(True, amounts, "non-zero amounts are future prices only")
     else:
         scoped = [_start_scoped(flat, h) for h in hits]
         if all(scoped[i] for i in nonzero_idx):
-            return Verdict(True, amounts, "semua nominal terikat penanda mulai masa depan")
-    # Rincian komponen: nominal yang belum terjelaskan boleh jadi rincian
-    # persis dari satu total masa depan ("$31.98" = "$19.99" + "$11.99").
+            return Verdict(True, amounts, "all amounts bound to a future start marker")
+    # Itemised components: an unexplained amount may be an exact
+    # component of one future total ("$31.98" = "$19.99" + "$11.99").
     if _components_explain(hits, scoped):
-        return Verdict(True, amounts, "nominal tak terikat adalah rincian total masa depan")
-    return Verdict(False, amounts, "ada nominal bukan nol tanpa label hari ini")
+        return Verdict(True, amounts, "unbound amounts itemise a future total")
+    return Verdict(False, amounts, "non-zero amount without a today label")

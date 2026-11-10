@@ -24,12 +24,12 @@ WANT = re.compile(
 
 
 async def _acc_id_for(email: str) -> str:
-    """Selesaikan acc_id dari email lewat vault (id akun acak, bukan turunan email)."""
+    """Resolve the acc_id for an email via the vault (account ids are random, not derived from the email)."""
     settings.ensure_dirs()
     await db.migrate()
     creds = await vault.account_creds(email)
     if not creds:
-        print(f"akun tidak ada di database: {email}", flush=True)
+        print(f"account not in database: {email}", flush=True)
         raise SystemExit(2)
     return creds[0]
 
@@ -51,12 +51,12 @@ async def main() -> int:
 
         txt = await page.inner_text("body")
         lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
-        print("=== baris relevan ===")
+        print("=== relevant lines ===")
         for ln in lines:
             if WANT.search(ln):
                 print(" *", ln[:160])
 
-        print("\n=== 40 baris awal ===")
+        print("\n=== first 40 lines ===")
         for ln in lines[:40]:
             print("  ", ln[:140])
 

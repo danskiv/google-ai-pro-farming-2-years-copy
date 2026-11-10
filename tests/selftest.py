@@ -130,25 +130,25 @@ def test_headless_resolution() -> None:
 
 
 def test_discover_today_resolves_zone() -> None:
-    """discover memuat ZoneInfo("America/Los_Angeles") saat diimpor.
+    """discover loads ZoneInfo("America/Los_Angeles") at import time.
 
-    Windows tidak punya database zona waktu IANA bawaan — tanpa paket
-    `tzdata` (dipin di pyproject + lock) impor ini meledak di sana dan
-    setiap run akun langsung mati.
+    Windows has no built-in IANA timezone database — without the `tzdata`
+    package (pinned in pyproject + lock) this import blows up there and
+    every account run dies immediately.
     """
     import tzdata
 
     from app.sites.google_one import discover
 
-    # Di Linux discover.today() tetap jalan dari /usr/share/zoneinfo walau
-    # paketnya hilang; pin keberadaan paketnya supaya venv tanpa tzdata
-    # gagal di sini, bukan nanti di Windows.
-    assert tzdata.__file__, "paket tzdata tidak terpasang di venv ini"
+    # On Linux discover.today() still works from /usr/share/zoneinfo even
+    # without the package; pin the package's presence so a venv without
+    # tzdata fails here, not later on Windows.
+    assert tzdata.__file__, "the tzdata package is not installed in this venv"
     assert discover.today().isoformat()
 
 
 def _patched_win32(env: dict[str, str]):
-    """Patch sys.platform + env Windows untuk satu blok, pulihkan sesudahnya."""
+    """Patch sys.platform + the Windows env for one block, restore after."""
     saved_platform = sys.platform
     saved_env = {k: os.environ.get(k) for k in env}
     sys.platform = "win32"
@@ -167,7 +167,7 @@ def _restore_win32(saved: tuple[str, dict[str, str | None]]) -> None:
 
 
 def test_win32_data_dir_simulation() -> None:
-    """Di host mana pun: platform win32 + LOCALAPPDATA kustom -> data dir ikut."""
+    """On any host: win32 platform + a custom LOCALAPPDATA -> the data dir follows."""
     saved = _patched_win32({"LOCALAPPDATA": r"D:\Profil\Local"})
     try:
         path = _default_data_dir()
@@ -178,7 +178,7 @@ def test_win32_data_dir_simulation() -> None:
 
 
 def test_win32_browser_resolution_simulation() -> None:
-    """Di host mana pun: chrome.exe di pohon instalasi Windows palsu terpilih."""
+    """On any host: a chrome.exe in a fake Windows install tree is picked."""
     root = Path(tempfile.mkdtemp(prefix="gai-win32-"))
     chrome_exe = root / "Program Files" / "Google" / "Chrome" / "Application" / "chrome.exe"
     chrome_exe.parent.mkdir(parents=True)
@@ -191,9 +191,9 @@ def test_win32_browser_resolution_simulation() -> None:
             "LOCALAPPDATA": str(root / "Local"),
         }
     )
-    # shutil.which membaca sys.platform dan masuk jalur win32 yang butuh
-    # modul khusus Windows; di host non-Windows stub saja pencarian PATH-nya
-    # (yang diuji di sini penemuan dari pohon instalasi, bukan PATH).
+    # shutil.which reads sys.platform and takes the win32 path, which needs
+    # Windows-only modules; on a non-Windows host stub out its PATH search
+    # (what is tested here is discovery from the install tree, not PATH).
     saved_which = browser.shutil.which
     browser.shutil.which = lambda _name: None
     try:
@@ -224,51 +224,51 @@ def test_browser_resolution_shape() -> None:
 
 
 def test_guard_judge_today_scoping() -> None:
-    """Money guard dinilai dari tagihan *hari ini*, bukan nol di mana saja."""
+    """The money guard is judged by *today's* charge, not a zero anywhere."""
     from app.sites.google_one import guard
 
-    # (a) trial sah: hari ini $0.00, harga masa depan disebut -> lolos
+    # (a) a valid trial: $0.00 today, a future price named -> passes
     v = guard.judge("Start free trial · Due today $0.00 · Then $19.99/month starting Dec 8, 2026")
     assert v.safe, v
-    # (b) tagihan hari ini bukan nol, walau ada $0.00 (pajak) -> gagal
+    # (b) today's charge is not zero, despite a $0.00 (tax) -> fails
     v = guard.judge("Subscribe · $199.99 due today + $0.00 tax")
     assert not v.safe, v
-    # (c) teks kosong / tak terbaca -> gagal (fail closed)
+    # (c) empty / unreadable text -> fails (fail closed)
     assert not guard.judge("").safe
     assert not guard.judge("   ").safe
     assert not guard.judge("dialog tanpa nominal apa pun").safe
-    # (d) tagihan hari ini bukan nol tanpa nol sama sekali -> gagal
+    # (d) today's charge not zero with no zero at all -> fails
     assert not guard.judge("Due today $49.99").safe
-    # nominal bukan nol tanpa label hari ini & tanpa konteks masa depan -> gagal
+    # a non-zero amount with no today label & no future context -> fails
     assert not guard.judge("Total $199.99 · tax $0.00").safe
-    # hanya harga masa depan + nol -> lolos
+    # only a future price + a zero -> passes
     assert guard.judge("Due $0.00 · renews at $19.99/month after the trial").safe
-    # negasi bukan tagihan: "won't be charged today" tidak menambatkan nominal
+    # a negation is not a charge: "won't be charged today" anchors no amount
     v = guard.judge("You won't be charged today · $0.00 due at trial end · then $19.99/month")
     assert v.safe, v
-    # dialog "Upcoming charges" layer 2-4: tidak ada tambatan hari ini dan
-    # *semua* nominal bukan-nol terikat tanggal mulai masa depan -> lolos
+    # the layer 2-4 "Upcoming charges" dialog: no today anchor, and
+    # *every* non-zero amount is bound to a future start date -> passes
     v = guard.judge(
         "Google AI Pro (2 TB) · Upcoming charges · Starting May 8, 2027 $13.99/month"
         " · Starting May 8, 2028 $19.99/month · Subscribe"
     )
     assert v.safe, v
-    # dialog berbayar polos (Tier B tanpa penanda mulai): satuan berkala
-    # /month & /year serta "renews" bukan penundaan -> gagal
+    # a plain paid dialog (Tier B, no start marker): the recurring units
+    # /month & /year and "renews" are not a deferral -> fails
     assert not guard.judge(
         "Google AI Pro (2 TB) · $19.99/month · Billed monthly · Subscribe"
     ).safe
     assert not guard.judge(
         "Subscribe to Google AI Pro · $199.99/year · Auto-renews on Nov 8, 2027"
     ).safe
-    # "Today $X": today telanjang menambatkan nominal sesudahnya
+    # "Today $X": a bare "today" anchors the amount after it
     assert not guard.judge("Today $19.99").safe
     v = guard.judge("12-month free trial · Today $0.00 · $19.99/month after trial")
     assert v.safe, v
 
-    # Dialog layer 2/3 asli (run 2026-11-09): rincian komponen tercetak
-    # SETELAH total masa depannya — "$31.98" = "$19.99" + "$11.99" — dan
-    # tidak ada tagihan hari ini -> lolos lewat aturan rincian komponen.
+    # The real layer 2/3 dialog (2026-11-09 run): the itemised components
+    # are printed AFTER their future total — "$31.98" = "$19.99" + "$11.99" —
+    # and there is no charge today -> passes via the itemisation rule.
     l2 = (
         "Google AI Pro (5 TB) + YouTube Premium Individual Add On "
         "Upcoming charges Starting Dec 8, 2026 $11.99/month includes tax of $0.00 "
@@ -280,12 +280,12 @@ def test_guard_judge_today_scoping() -> None:
     assert v.safe, v
     v = guard.judge(l2.replace("May 8, 2028", "Nov 8, 2028"))
     assert v.safe, v
-    # total diubah -> jumlah rincian tidak lagi cocok -> gagal
+    # total tampered -> the components no longer sum to it -> fails
     assert not guard.judge(l2.replace("$31.98", "$30.98")).safe
-    # nominal ekstra tak terjelaskan setelah rincian -> gagal
+    # an extra unexplained amount after the itemisation -> fails
     assert not guard.judge(l2 + " · Activation $5.00").safe
-    # aturan rincian tidak menolong dialog berbayar polos yang ditambah
-    # rincian karangan: tanpa total masa depan terikat, tetap gagal
+    # the itemisation rule does not rescue a plain paid dialog with an
+    # invented breakdown: without a bound future total, it still fails
     assert not guard.judge(
         "Google AI Pro $19.99 · YouTube Premium $11.99 · Total $31.98 · Billed monthly"
     ).safe
@@ -304,36 +304,36 @@ def test_same_origin_guard() -> None:
 
     async def run() -> None:
         host = {"host": "127.0.0.1:8765"}
-        # tanpa Origin/Referer -> lolos
+        # no Origin/Referer -> passes
         await require_same_origin(req(host))
-        # Origin / Referer se-host dengan header Host -> lolos
+        # Origin / Referer on the same host as the Host header -> passes
         await require_same_origin(req({**host, "origin": "http://127.0.0.1:8765"}))
         await require_same_origin(req({**host, "referer": "http://127.0.0.1:8765/"}))
-        # host/port lain, atau Origin "null" (sandboxed iframe) -> 403
+        # another host/port, or Origin "null" (sandboxed iframe) -> 403
         for bad in ("http://127.0.0.1:9999", "https://evil.example", "null"):
             try:
                 await require_same_origin(req({**host, "origin": bad}))
             except HTTPException as exc:
                 assert exc.status_code == 403, exc.status_code
                 continue
-            raise AssertionError(f"origin {bad!r} lolos")
+            raise AssertionError(f"origin {bad!r} passed")
 
     asyncio.run(run())
 
 
 def test_latest_log_rejects_bad_ids() -> None:
-    """acc_id mentah dari URL tidak boleh lolos jadi pola glob."""
+    """A raw acc_id from the URL must not slip through as a glob pattern."""
     from app.runner import queue
 
     assert queue.latest_log("../etc/passwd") is None
     assert queue.latest_log("acc_xyz") is None
     assert queue.latest_log("*") is None
-    # pola sah tapi belum ada log untuknya -> None juga
+    # a valid pattern but no log for it yet -> None as well
     assert queue.latest_log("acc_0123456789ab") is None
 
 
 def test_vault_card_rotation_and_reimport() -> None:
-    """kill_card memutar akun ke kartu aktif; re-impor menyegarkan akun."""
+    """kill_card rotates the account to an active card; re-import refreshes it."""
     from app import vault
 
     async def run() -> None:
@@ -342,29 +342,29 @@ def test_vault_card_rotation_and_reimport() -> None:
         assert ok, note
         ok, note = await vault.add_card("5555555555554444", "12", "30", "123")
         assert ok, note
-        ok, note = await vault.add_account("uji@example.com", "pw-lama", "")
+        ok, note = await vault.add_account("test@example.com", "pw-old", "")
         assert ok, note
-        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'uji@example.com'")
+        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'test@example.com'")
         assert acc is not None and acc["card_id"], acc
         dead = acc["card_id"]
         others = [c["id"] for c in await db.fetch_all("SELECT id FROM cards") if c["id"] != dead]
         assert len(others) == 1
 
         await vault.kill_card(dead, dead=True)
-        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'uji@example.com'")
+        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'test@example.com'")
         assert acc["card_id"] == others[0], acc["card_id"]
 
-        # hidupkan lagi: backfill tidak mencuri akun yang sudah punya kartu
+        # revive it: backfill does not steal an account that already has a card
         await vault.kill_card(dead, dead=False)
-        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'uji@example.com'")
+        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'test@example.com'")
         assert acc["card_id"] == others[0], acc["card_id"]
 
-        # re-impor: seed yang dulu kosong kini tertulis, failed -> pending,
-        # penugasan kartu tetap valid
+        # re-import: the seed that was empty is now written, failed -> pending,
+        # and the card assignment stays valid
         await db.execute("UPDATE accounts SET status = 'failed' WHERE id = ?", (acc["id"],))
-        ok, note = await vault.add_account("uji@example.com", "pw-baru", "JBSWY3DPEHPK3PXP")
-        assert not ok and note.endswith("diperbarui"), note
-        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'uji@example.com'")
+        ok, note = await vault.add_account("test@example.com", "pw-new", "JBSWY3DPEHPK3PXP")
+        assert not ok and note.endswith("updated"), note
+        acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'test@example.com'")
         assert acc["status"] == "pending", acc["status"]
         assert acc["totp_ref"] == f"{acc['id']}:totp", acc["totp_ref"]
         assert acc["card_id"] == others[0], acc["card_id"]
@@ -477,6 +477,22 @@ def test_guard_currency_decimal_boundaries() -> None:
     for text, expected in cases:
         verdict = guard.judge(text)
         assert verdict.safe is expected, (text, verdict)
+
+
+def test_i18n_catalogues() -> None:
+    """Both UI languages carry the same keys; the default is English."""
+    from app import i18n
+
+    assert i18n.DEFAULT == "en"
+    assert set(i18n.STR["en"]) == set(i18n.STR["id"])
+    assert i18n.resolve(None, None) == "en"
+    assert i18n.resolve("id", None) == "id"
+    assert i18n.resolve("xx", "id") == "id"
+    assert i18n.resolve(None, "id") == "id"
+    assert i18n.t("en", "accounts") == "Accounts"
+    assert i18n.t("id", "accounts") == "Akun"
+    assert i18n.t("en", "queue_pending", n=3) == "3 queued"
+    assert set(i18n.js_catalogue("id")) == set(i18n.JS_KEYS)
 
 
 def main() -> int:

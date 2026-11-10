@@ -1,7 +1,7 @@
-"""Probe halaman metode pembayaran akun: daftar frame, kartu, tombol Remove.
+"""Probe an account's payment methods page: list frames, cards, Remove buttons.
 
-Email akun diambil dari argumen; kredensial dan last4 kartu diselesaikan
-lewat vault seperti subscribe_flow.py — tidak ada identitas akun di kode.
+The account email comes from argv; credentials and the card's last4 are
+resolved via the vault like subscribe_flow.py — no account identity in code.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ async def main() -> int:
     await db.migrate()
     creds = await vault.account_creds(email)
     if not creds:
-        print(f"akun tidak ada di database: {email}", flush=True)
+        print(f"account not in database: {email}", flush=True)
         return 2
     acc_id, password, secret = creds
     row = await db.fetch_one("SELECT card_id FROM accounts WHERE id = ?", (acc_id,))

@@ -29,12 +29,12 @@ DUMP = """() => ({
 
 
 async def _acc_id_for(email: str) -> str:
-    """Selesaikan acc_id dari email lewat vault (id akun acak, bukan turunan email)."""
+    """Resolve the acc_id for an email via the vault (account ids are random, not derived from the email)."""
     settings.ensure_dirs()
     await db.migrate()
     creds = await vault.account_creds(email)
     if not creds:
-        print(f"akun tidak ada di database: {email}", flush=True)
+        print(f"account not in database: {email}", flush=True)
         raise SystemExit(2)
     return creds[0]
 
@@ -52,15 +52,15 @@ async def main() -> int:
         try:
             await page.locator('button:has-text("Manage")').first.click(timeout=8000)
         except Exception as exc:
-            print("Manage gagal:", type(exc).__name__)
+            print("Manage failed:", type(exc).__name__)
         await asyncio.sleep(4)
         await page.locator('button:has-text("Cancel subscription")').first.click(timeout=10000)
         await asyncio.sleep(3)
 
         info = await page.evaluate(DUMP)
-        print("=== TEKS UTUH ===")
+        print("=== FULL TEXT ===")
         print(info["text"])
-        print("\n=== TOMBOL/RADIO TERLIHAT ===")
+        print("\n=== VISIBLE BUTTONS/RADIOS ===")
         for b in info["buttons"]:
             print(json.dumps(b, ensure_ascii=False))
 

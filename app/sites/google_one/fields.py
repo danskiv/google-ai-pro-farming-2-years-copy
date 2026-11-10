@@ -29,7 +29,7 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
     try:
         await page.locator(sel).first.wait_for(state="attached", timeout=6000)
     except Exception:
-        print(f"   kolom tidak ada: {sel}")
+        print(f"   field not found: {sel}")
         return False
 
     for attempt in range(tries):
@@ -83,8 +83,8 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
             bad = await el.get_attribute("aria-invalid", timeout=2000) or ""
         except Exception:
             pass
-        print(f"   isi tidak masuk (percobaan {attempt + 1}/{tries}, "
-              f"panjang={len(landed)}, aria-invalid={bad or '-'})")
+        print(f"   fill did not land (attempt {attempt + 1}/{tries}, "
+              f"length={len(landed)}, aria-invalid={bad or '-'})")
         await asyncio.sleep(1.2)
 
     return False
