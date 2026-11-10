@@ -492,6 +492,10 @@ def test_i18n_catalogues() -> None:
     assert i18n.t("en", "accounts") == "Accounts"
     assert i18n.t("id", "accounts") == "Akun"
     assert i18n.t("en", "queue_pending", n=3) == "3 queued"
+    assert i18n.noun("en", "cards", 1) == "1 card"
+    assert i18n.noun("en", "cards", 4) == "4 cards"
+    assert i18n.noun("id", "cards", 1) == "1 kartu"
+    assert i18n.noun("id", "cards", 4) == "4 kartu"
     assert set(i18n.js_catalogue("id")) == set(i18n.JS_KEYS)
 
 

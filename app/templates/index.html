@@ -177,7 +177,7 @@
     <span class="dot {{ 'busy' if current or pending else '' }}" id="dot"></span>
     <span id="q">{% if current %}{{ tr('queue_running', current=current) }}{% elif pending %}{{ tr('queue_pending', n=pending) }}{% else %}{{ tr('queue_idle') }}{% endif %}</span>
     <span class="sep">·</span>
-    <span>{{ tr('header_counts', a=accounts|length, c=cards|length) }}</span>
+    <span>{{ noun('accounts', accounts|length) }} · {{ noun('cards', cards|length) }}</span>
   </div>
   <span class="spacer"></span>
   <form method="post" action="/queue/run-all">
@@ -295,7 +295,7 @@
       <tr>
         <td><code>{{ c.label }}</code></td>
         <td>{{ c.exp }}</td>
-        <td>{{ tr('used_accounts', n=c.used) }}</td>
+        <td>{{ noun('accounts', c.used) }}</td>
         <td><span class="pill {{ c.status }}">{{ c.status }}</span></td>
         <td class="actions">
           <form method="post" action="/cards/{{ c.id }}/status">

@@ -23,7 +23,10 @@ STR: dict[str, dict[str, str]] = {
         "queue_running": "running: {current}",
         "queue_pending": "{n} queued",
         "queue_idle": "idle",
-        "header_counts": "{a} accounts · {c} cards",
+        "accounts_one": "account",
+        "accounts_many": "accounts",
+        "cards_one": "card",
+        "cards_many": "cards",
         "run_all": "run all",
         "stop": "stop",
         "close": "close",
@@ -54,7 +57,6 @@ STR: dict[str, dict[str, str]] = {
         "card_number": "card number",
         "col_exp": "exp",
         "col_used": "used",
-        "used_accounts": "{n} accounts",
         "confirm_delete_card": "delete card {label}?",
         "confirm_kill_card": "disable {label}? accounts using it will be released.",
         "disable_card": "disable",
@@ -85,7 +87,10 @@ STR: dict[str, dict[str, str]] = {
         "queue_running": "jalan: {current}",
         "queue_pending": "{n} antre",
         "queue_idle": "idle",
-        "header_counts": "{a} akun · {c} kartu",
+        "accounts_one": "akun",
+        "accounts_many": "akun",
+        "cards_one": "kartu",
+        "cards_many": "kartu",
         "run_all": "jalankan semua",
         "stop": "stop",
         "close": "tutup",
@@ -114,7 +119,6 @@ STR: dict[str, dict[str, str]] = {
         "card_number": "nomor kartu",
         "col_exp": "exp",
         "col_used": "dipakai",
-        "used_accounts": "{n} akun",
         "confirm_delete_card": "hapus kartu {label}?",
         "confirm_kill_card": "matikan {label}? akun yang memakainya akan dilepas.",
         "disable_card": "matikan",
@@ -160,6 +164,13 @@ def resolve(explicit: str | None, cookie: str | None) -> str:
 def t(lang: str, key: str, **fmt: object) -> str:
     text = STR.get(lang, STR[DEFAULT]).get(key) or STR[DEFAULT][key]
     return text.format(**fmt) if fmt else text
+
+
+def noun(lang: str, base: str, n: int) -> str:
+    """A counted noun phrase: "1 account" / "4 accounts" (Indonesian does
+    not pluralise, so both forms coincide there)."""
+    word = t(lang, f"{base}_{'one' if n == 1 else 'many'}")
+    return f"{n} {word}"
 
 
 def js_catalogue(lang: str) -> dict[str, str]:

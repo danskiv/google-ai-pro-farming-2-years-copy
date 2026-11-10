@@ -97,6 +97,7 @@ def create_app() -> FastAPI:
                 "current": queue.runner.current,
                 "lang": lang,
                 "tr": lambda key, **fmt: i18n.t(lang, key, **fmt),
+                "noun": lambda base, n: i18n.noun(lang, base, n),
                 "js_i18n": i18n.js_catalogue(lang),
             },
         )
