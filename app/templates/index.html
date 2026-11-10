@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="id">
+<html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
 <title>GaiConsole</title>
@@ -157,7 +157,10 @@
     color:#2b2b31; background:#fbfbfc; border:1px solid var(--line-soft);
     border-radius:var(--radius-sm); padding:.6rem; overscroll-behavior:contain;
   }
-  pre#log:empty::before { content:"(belum ada run)"; color:var(--muted); }
+  pre#log:empty::before { content:attr(data-empty); color:var(--muted); }
+  .lang { font-size:12px; color:var(--muted); }
+  .lang a { color:var(--muted); text-decoration:none; padding:.1rem .25rem; }
+  .lang a.on { color:var(--ink); font-weight:700; }
   .spin { display:inline-block; animation:spin 1s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
 
@@ -172,36 +175,39 @@
   <h1>GaiConsole <span>— vault</span></h1>
   <div class="stats">
     <span class="dot {{ 'busy' if current or pending else '' }}" id="dot"></span>
-    <span id="q">{% if current %}jalan: {{ current }}{% elif pending %}{{ pending }} antre{% else %}idle{% endif %}</span>
+    <span id="q">{% if current %}{{ tr('queue_running', current=current) }}{% elif pending %}{{ tr('queue_pending', n=pending) }}{% else %}{{ tr('queue_idle') }}{% endif %}</span>
     <span class="sep">·</span>
-    <span>{{ accounts|length }} akun · {{ cards|length }} kartu</span>
+    <span>{{ noun('accounts', accounts|length) }} · {{ noun('cards', cards|length) }}</span>
   </div>
   <span class="spacer"></span>
   <form method="post" action="/queue/run-all">
-    <button type="submit">jalankan semua</button>
+    <button type="submit">{{ tr('run_all') }}</button>
   </form>
   <form method="post" action="/queue/stop">
-    <button class="danger" type="submit">stop</button>
+    <button class="danger" type="submit">{{ tr('stop') }}</button>
   </form>
+  <nav class="lang" aria-label="{{ tr('aria_language') }}">
+    <a href="/?lang=en" {% if lang == 'en' %}class="on"{% endif %}>EN</a>·<a href="/?lang=id" {% if lang == 'id' %}class="on"{% endif %}>ID</a>
+  </nav>
 </header>
 
-{% if msg %}<div class="banner ok" role="status">{{ msg }}<button type="button" data-x aria-label="tutup">×</button></div>{% endif %}
-{% if err %}<div class="banner bad" role="alert">{{ err }}<button type="button" data-x aria-label="tutup">×</button></div>{% endif %}
+{% if msg %}<div class="banner ok" role="status">{{ msg }}<button type="button" data-x aria-label="{{ tr('close') }}">×</button></div>{% endif %}
+{% if err %}<div class="banner bad" role="alert">{{ err }}<button type="button" data-x aria-label="{{ tr('close') }}">×</button></div>{% endif %}
 
 <main>
   <section>
-    <h2>Akun</h2>
-    <p class="hint">Tempel satu per baris: <code>email|password|secret-totp</code>. Seed disimpan di vault (Keychain/Secret Service/file 0600), yang tampil hanya kodenya.</p>
+    <h2>{{ tr('accounts') }}</h2>
+    <p class="hint">{{ tr('accounts_hint')|safe }}</p>
     <form method="post" action="/accounts/import">
-      <textarea name="blob" placeholder="nama@gmail.com|password|JBSWY3DPEHPK3PXP"></textarea>
-      <div class="row"><button class="primary" type="submit">Impor</button></div>
+      <textarea name="blob" placeholder="name@gmail.com|password|JBSWY3DPEHPK3PXP"></textarea>
+      <div class="row"><button class="primary" type="submit">{{ tr('import') }}</button></div>
     </form>
     <form method="post" action="/accounts/add">
       <div class="row">
         <input class="grow" name="email" placeholder="email" required autocomplete="off">
         <input class="grow" name="password" placeholder="password" required autocomplete="off">
-        <input class="grow" name="seed" placeholder="secret TOTP (opsional)" autocomplete="off">
-        <button type="submit">Tambah</button>
+        <input class="grow" name="seed" placeholder="{{ tr('seed_placeholder') }}" autocomplete="off">
+        <button type="submit">{{ tr('add') }}</button>
       </div>
     </form>
 
@@ -212,7 +218,7 @@
         <col style="width:15%"><col style="width:14%"><col style="width:11%">
       </colgroup>
       <thead>
-        <tr><th>email</th><th>password</th><th>otp</th><th>kartu</th><th>status</th><th></th></tr>
+        <tr><th>email</th><th>password</th><th>otp</th><th>{{ tr('col_card') }}</th><th>{{ tr('col_status') }}</th><th></th></tr>
       </thead>
       <tbody>
       {% for a in accounts %}
@@ -222,7 +228,7 @@
           <span class="pw">
             <code data-pw="{{ a.id }}">••••••</code>
             <button type="button" class="reveal" data-reveal="{{ a.id }}"
-                    aria-label="lihat password {{ a.email }}">lihat</button>
+                    aria-label="{{ tr('show_password', email=a.email) }}">{{ tr('show') }}</button>
           </span>
         </td>
         <td>
@@ -235,7 +241,7 @@
         </td>
         <td>
           {% if a.card %}<span class="pill {{ a.card_status }}">{{ a.card }}</span>
-          {% else %}<span class="muted">belum</span>{% endif %}
+          {% else %}<span class="muted">{{ tr('not_yet') }}</span>{% endif %}
         </td>
         <td>
           <span class="pill" data-status="{{ a.id }}">{{ a.status }}</span>
@@ -244,16 +250,16 @@
         </td>
         <td class="actions">
           <form method="post" action="/accounts/{{ a.id }}/run">
-            <button type="submit" data-run="{{ a.id }}" {% if a.status == 'running' or a.status == 'subscribed' %}disabled{% endif %}>jalankan</button>
+            <button type="submit" data-run="{{ a.id }}" {% if a.status == 'running' or a.status == 'subscribed' %}disabled{% endif %}>{{ tr('run') }}</button>
           </form>
           <form method="post" action="/accounts/{{ a.id }}/delete"
-                data-confirm="hapus {{ a.email }}?">
-            <button class="danger" type="submit">hapus</button>
+                data-confirm="{{ tr('confirm_delete_account', email=a.email) }}">
+            <button class="danger" type="submit">{{ tr('delete') }}</button>
           </form>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">belum ada akun</td></tr>
+      <tr><td colspan="6" class="empty">{{ tr('empty_accounts') }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -261,18 +267,18 @@
   </section>
 
   <section>
-    <h2>Kartu</h2>
-    <p class="hint">Tempel satu per baris: <code>nomor|MM/YY|CVC</code>. Nomor &amp; CVC ke vault (Keychain/Secret Service/file 0600); yang tampil hanya 4 digit terakhir. Rotasi bergilir ke kartu aktif yang paling lama tidak dipakai.</p>
+    <h2>{{ tr('cards') }}</h2>
+    <p class="hint">{{ tr('cards_hint')|safe }}</p>
     <form method="post" action="/cards/import">
       <textarea name="blob" placeholder="4111111111111111|08/29|123"></textarea>
-      <div class="row"><button class="primary" type="submit">Impor</button></div>
+      <div class="row"><button class="primary" type="submit">{{ tr('import') }}</button></div>
     </form>
     <form method="post" action="/cards/add">
       <div class="row">
-        <input class="grow" name="number" placeholder="nomor kartu" required autocomplete="off" inputmode="numeric">
+        <input class="grow" name="number" placeholder="{{ tr('card_number') }}" required autocomplete="off" inputmode="numeric">
         <input name="exp" placeholder="MM/YY" size="7" required autocomplete="off">
         <input name="cvc" placeholder="CVC" size="5" required autocomplete="off" inputmode="numeric">
-        <button type="submit">Tambah</button>
+        <button type="submit">{{ tr('add') }}</button>
       </div>
     </form>
 
@@ -282,33 +288,33 @@
         <col style="width:30%"><col style="width:18%"><col style="width:18%"><col style="width:16%"><col style="width:18%">
       </colgroup>
       <thead>
-        <tr><th>kartu</th><th>exp</th><th>dipakai</th><th>status</th><th></th></tr>
+        <tr><th>{{ tr('col_card') }}</th><th>{{ tr('col_exp') }}</th><th>{{ tr('col_used') }}</th><th>{{ tr('col_status') }}</th><th></th></tr>
       </thead>
       <tbody>
       {% for c in cards %}
       <tr>
         <td><code>{{ c.label }}</code></td>
         <td>{{ c.exp }}</td>
-        <td>{{ c.used }} akun</td>
+        <td>{{ noun('accounts', c.used) }}</td>
         <td><span class="pill {{ c.status }}">{{ c.status }}</span></td>
         <td class="actions">
           <form method="post" action="/cards/{{ c.id }}/status">
             {% if c.status == 'active' %}
             <input type="hidden" name="dead" value="1">
-            <button class="danger" type="submit" data-confirm="matikan {{ c.label }}? akun yang memakainya akan dilepas.">matikan</button>
+            <button class="danger" type="submit" data-confirm="{{ tr('confirm_kill_card', label=c.label) }}">{{ tr('disable_card') }}</button>
             {% else %}
             <input type="hidden" name="dead" value="0">
-            <button type="submit">hidupkan</button>
+            <button type="submit">{{ tr('enable_card') }}</button>
             {% endif %}
           </form>
           <form method="post" action="/cards/{{ c.id }}/delete"
-                data-confirm="hapus kartu {{ c.label }}?">
-            <button class="danger" type="submit">hapus</button>
+                data-confirm="{{ tr('confirm_delete_card', label=c.label) }}">
+            <button class="danger" type="submit">{{ tr('delete') }}</button>
           </form>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="empty">belum ada kartu</td></tr>
+      <tr><td colspan="5" class="empty">{{ tr('empty_cards') }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -318,18 +324,19 @@
 
 <section class="logwrap">
   <div class="loghead">
-    <h2>Log run</h2>
+    <h2>{{ tr('run_log') }}</h2>
     <span class="muted" id="logwho"></span>
     <span class="spacer"></span>
     <span class="muted" id="logstat"></span>
-    <button type="button" id="follow" aria-pressed="true">auto-scroll: on</button>
+    <button type="button" id="follow" aria-pressed="true">{{ tr('auto_scroll_on') }}</button>
   </div>
-  <pre id="log" tabindex="0"></pre>
+  <pre id="log" tabindex="0" data-empty="{{ tr('log_empty') }}"></pre>
 </section>
 
 <script>
 (() => {
   "use strict";
+  const I18N = {{ js_i18n | tojson }};
   const $  = (sel) => document.querySelector(sel);
   const by = (attr, id) => document.querySelector(`[${attr}="${id}"]`);
 
@@ -362,7 +369,7 @@
     if (btn.dataset.shown === "1") {
       cell.textContent = "••••••";
       btn.dataset.shown = "0";
-      btn.textContent = "lihat";
+      btn.textContent = I18N.show;
       return;
     }
     btn.dataset.busy = "1";
@@ -371,9 +378,9 @@
       if (!res.ok) throw new Error(String(res.status));
       cell.textContent = (await res.json()).password;
       btn.dataset.shown = "1";
-      btn.textContent = "sembunyi";
+      btn.textContent = I18N.hide;
     } catch {
-      cell.textContent = "(gagal)";
+      cell.textContent = I18N.js_failed;
     } finally {
       delete btn.dataset.busy;
     }
@@ -391,7 +398,7 @@
 
   followBtn.addEventListener("click", () => {
     follow = !follow;
-    followBtn.textContent = `auto-scroll: ${follow ? "on" : "off"}`;
+    followBtn.textContent = follow ? I18N.auto_scroll_on : I18N.auto_scroll_off;
     followBtn.setAttribute("aria-pressed", String(follow));
     if (follow) logEl.scrollTop = logEl.scrollHeight;
   });
@@ -400,7 +407,7 @@
     const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
     if (atBottom !== follow) {
       follow = atBottom;
-      followBtn.textContent = `auto-scroll: ${follow ? "on" : "off"}`;
+      followBtn.textContent = follow ? I18N.auto_scroll_on : I18N.auto_scroll_off;
       followBtn.setAttribute("aria-pressed", String(follow));
     }
   });
@@ -415,7 +422,7 @@
     if (text.length === lastLogSize) return;      // unchanged: leave the DOM alone
     lastLogSize = text.length;
     logEl.textContent = text;                      // full replace keeps it simple and safe
-    statEl.textContent = running ? "" : "(selesai)";
+    statEl.textContent = running ? "" : I18N.js_done;
     if (follow) logEl.scrollTop = logEl.scrollHeight;
   }
 
@@ -470,7 +477,7 @@
     } catch {
       if (++failures === 3) {                      // only speak up on a real outage
         dotEl.className = "dot";
-        qEl.textContent = "koneksi terputus";
+        qEl.textContent = I18N.js_disconnected;
       }
       return;
     }
@@ -478,8 +485,8 @@
     const running = Boolean(data.current || data.pending);
     dotEl.className = `dot ${running ? "busy" : ""}`;
     qEl.textContent = data.current
-      ? `jalan: ${data.current}`
-      : data.pending ? `${data.pending} antre` : "idle";
+      ? I18N.queue_running.replace("{current}", data.current)
+      : data.pending ? I18N.queue_pending.replace("{n}", data.pending) : I18N.queue_idle;
 
     paintCodes(data.codes);
     paintRows(data.accounts);

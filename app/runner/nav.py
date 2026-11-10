@@ -25,5 +25,5 @@ async def goto(
             last = exc
             if attempt < tries - 1:
                 await asyncio.sleep(2.0 * (attempt + 1))
-    print(f"   nav gagal {tries}x: {type(last).__name__}: {str(last)[:90]}")
+    print(f"   nav failed {tries}x: {type(last).__name__}: {str(last)[:90]}")
     return False

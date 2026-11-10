@@ -103,8 +103,8 @@ async def migrate() -> None:
                 await conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
             await conn.commit()
 
-    # Sekali saat boot saja (dulu: setiap connect()). File DB berisi metadata
-    # akun; wal/shm ikut turunan mode-nya.
+    # Once at boot only (previously: on every connect()). The DB file holds
+    # account metadata; wal/shm inherit its mode.
     try:
         settings.db_path.chmod(0o600)
     except OSError:

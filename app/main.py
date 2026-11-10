@@ -12,12 +12,17 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import quote
 
-from . import db, secrets, vault
+from . import db, i18n, secrets, vault
 from .config import settings
 from .runner import browser, queue
 from .security import COOKIE_NAME, require_same_origin, require_token
 
 log = logging.getLogger("gai")
+
+
+def _lang(request: Request) -> str:
+    """Language for handler-composed messages: the UI cookie, else English."""
+    return i18n.resolve(None, request.cookies.get(i18n.COOKIE))
 
 
 def _to(dest: str = "/", **params: str) -> RedirectResponse:
@@ -39,8 +44,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings.ensure_dirs()
     token = settings.load_or_create_token()
     await db.migrate()
-    # Proses yang mati di tengah run meninggalkan akun berstatus 'running'
-    # selamanya; tidak ada run yang hidup saat boot, jadi kembalikan.
+    # A process that died mid-run leaves its account at 'running' forever;
+    # no run is alive at boot, so reset them.
     await db.execute("UPDATE accounts SET status = 'pending' WHERE status = 'running'")
     queue.runner.start()
     log.warning("secret backend: %s", secrets.describe())
@@ -52,8 +57,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="GaiConsole", lifespan=lifespan, docs_url=None, redoc_url=None)
     guard = [Depends(require_token)]
-    # POST juga Origin dicek: cookie token ikut terkirim pada form POST
-    # lintas-situs, jadi token saja tidak cukup menolak CSRF.
+    # POSTs also check Origin: the token cookie rides along on cross-site
+    # form POSTs, so the token alone does not stop CSRF.
     post_guard = [Depends(require_token), Depends(require_same_origin)]
 
     @app.get("/healthz")
@@ -67,30 +72,42 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/", dependencies=guard)
-    async def index(request: Request, msg: str = "", err: str = ""):
+    async def index(request: Request, msg: str = "", err: str = "", lang: str = ""):
+        lang = i18n.resolve(lang or None, request.cookies.get(i18n.COOKIE))
         if getattr(request.state, "set_cookie_token", None):
-            # Kunjungan pertama lewat ?t=: tukar token di URL dengan cookie,
-            # lalu redirect ke URL bersih supaya token tidak tertinggal di
-            # address bar, riwayat, atau log proxy.
-            dest = "/?" + "&".join(
-                f"{k}={quote(v)}" for k, v in (("msg", msg), ("err", err)) if v
-            )
+            # First visit via ?t=: trade the URL token for a cookie, then
+            # redirect to a clean URL so the token does not linger in the
+            # address bar, history, or proxy logs.
+            parts = [(k, v) for k, v in (("msg", msg), ("err", err)) if v]
+            if "lang" in request.query_params and lang in i18n.LANGS:
+                parts.append(("lang", lang))
+            dest = "/?" + "&".join(f"{k}={quote(v)}" for k, v in parts)
             resp = RedirectResponse(dest if len(dest) > 2 else "/", status_code=303)
             resp.set_cookie(COOKIE_NAME, request.state.set_cookie_token,
                             httponly=True, samesite="strict")
+            if parts and parts[-1][0] == "lang":
+                resp.set_cookie(i18n.COOKIE, lang, max_age=31536000,
+                                httponly=False, samesite="strict")
             return resp
-        return templates.TemplateResponse(
+        resp = templates.TemplateResponse(
             request,
             "index.html",
             {
-                "accounts": await vault.accounts_view(),
+                "accounts": await vault.accounts_view(lang),
                 "cards": await vault.cards_view(),
                 "msg": msg,
                 "err": err,
                 "pending": queue.runner.pending,
                 "current": queue.runner.current,
+                "lang": lang,
+                "tr": lambda key, **fmt: i18n.t(lang, key, **fmt),
+                "noun": lambda base, n: i18n.noun(lang, base, n),
+                "js_i18n": i18n.js_catalogue(lang),
             },
         )
+        if lang in i18n.LANGS:
+            resp.set_cookie(i18n.COOKIE, lang, max_age=31536000, httponly=False, samesite="strict")
+        return resp
 
     @app.get("/api/codes", dependencies=guard)
     async def codes() -> JSONResponse:
@@ -109,64 +126,80 @@ def create_app() -> FastAPI:
         return JSONResponse({"password": vault.secret_get(row["secret_ref"])})
 
     @app.post("/accounts/import", dependencies=post_guard)
-    async def accounts_import(blob: str = Form(default="")):
+    async def accounts_import(request: Request, blob: str = Form(default="")):
+        lang = _lang(request)
         notes = await vault.import_accounts(blob)
-        added = sum(1 for n in notes if n.endswith("ditambahkan"))
-        updated = sum(1 for n in notes if n.endswith("diperbarui"))
+        added = notes.count("added")
+        updated = notes.count("updated")
         skipped = len(notes) - added - updated
         parts = []
         if added:
-            parts.append(f"{added} akun masuk")
+            parts.append(i18n.tn(lang, "flash_accounts_imported", added))
         if updated:
-            parts.append(f"{updated} diperbarui")
+            parts.append(i18n.t(lang, "flash_updated", n=updated))
         if skipped:
-            parts.append(f"{skipped} dilewati")
-        return _to(msg=", ".join(parts) if parts else "0 akun masuk")
+            parts.append(i18n.t(lang, "flash_skipped", n=skipped))
+        return _to(msg=", ".join(parts) if parts else i18n.t(lang, "flash_no_accounts"))
 
     @app.post("/accounts/add", dependencies=post_guard)
-    async def accounts_add(email: str = Form(...), password: str = Form(...), seed: str = Form(default="")):
-        _, note = await vault.add_account(email, password, seed)
-        return _to(msg=note)
+    async def accounts_add(request: Request, email: str = Form(...), password: str = Form(...), seed: str = Form(default="")):
+        lang = _lang(request)
+        _, status = await vault.add_account(email, password, seed)
+        if status == "added":
+            return _to(msg=i18n.t(lang, "flash_account_added", email=email))
+        if status == "updated":
+            return _to(msg=i18n.t(lang, "flash_account_updated", email=email))
+        return _to(err=i18n.t(lang, "flash_invalid_email"))
 
     @app.post("/accounts/{acc_id}/delete", dependencies=post_guard)
-    async def accounts_delete(acc_id: str):
+    async def accounts_delete(request: Request, acc_id: str):
         await vault.delete_account(acc_id)
-        return _to(msg="akun dihapus")
+        return _to(msg=i18n.t(_lang(request), "flash_account_deleted"))
 
     @app.post("/cards/import", dependencies=post_guard)
-    async def cards_import(blob: str = Form(default="")):
+    async def cards_import(request: Request, blob: str = Form(default="")):
+        lang = _lang(request)
         notes = await vault.import_cards(blob)
-        added = sum(1 for n in notes if n.endswith("ditambahkan"))
+        added = notes.count("added")
         unusable = len(notes) - added
-        text = f"{added} kartu masuk" + (f", {unusable} dilewati" if unusable else "")
+        text = i18n.tn(lang, "flash_cards_imported", added)
+        if unusable:
+            text += ", " + i18n.t(lang, "flash_skipped", n=unusable)
         return _to(msg=text)
 
     @app.post("/cards/add", dependencies=post_guard)
-    async def cards_add(number: str = Form(...), exp: str = Form(...), cvc: str = Form(...)):
+    async def cards_add(request: Request, number: str = Form(...), exp: str = Form(...), cvc: str = Form(...)):
         parsed = vault.parse_card(f"{number}|{exp}|{cvc}")
         if not parsed:
-            return _to(err="format kartu tidak valid")
-        _, note = await vault.add_card(*parsed)
-        return _to(msg=note)
+            return _to(err=i18n.t(_lang(request), "flash_invalid_card"))
+        lang = _lang(request)
+        _, status, label = await vault.add_card(*parsed)
+        if status == "added":
+            return _to(msg=i18n.t(lang, "flash_card_added", label=label))
+        if status == "exists":
+            return _to(msg=i18n.t(lang, "flash_card_exists", label=label))
+        return _to(err=i18n.t(lang, "flash_invalid_card"))
 
     @app.post("/cards/{card_id}/status", dependencies=post_guard)
-    async def cards_status(card_id: str, dead: int = Form(...)):
+    async def cards_status(request: Request, card_id: str, dead: int = Form(...)):
         await vault.kill_card(card_id, dead=bool(dead))
-        return _to(msg="status kartu diubah")
+        return _to(msg=i18n.t(_lang(request), "flash_card_status"))
 
     @app.post("/cards/{card_id}/delete", dependencies=post_guard)
-    async def cards_delete(card_id: str):
+    async def cards_delete(request: Request, card_id: str):
         await vault.delete_card(card_id)
-        return _to(msg="kartu dihapus, akun dilepas")
+        return _to(msg=i18n.t(_lang(request), "flash_card_deleted"))
 
     # ── runs ────────────────────────────────────────────────────────────────
     @app.post("/accounts/{acc_id}/run", dependencies=post_guard)
-    async def accounts_run(acc_id: str):
+    async def accounts_run(request: Request, acc_id: str):
         ok = await queue.runner.submit(acc_id)
-        return _to(msg='masuk antrean' if ok else 'sudah antre/running')
+        lang = _lang(request)
+        return _to(msg=i18n.t(lang, "flash_queued") if ok
+                   else i18n.t(lang, "flash_already_queued"))
 
     @app.post("/queue/run-all", dependencies=post_guard)
-    async def queue_run_all():
+    async def queue_run_all(request: Request):
         rows = await db.fetch_all(
             "SELECT a.id FROM accounts a WHERE a.status != 'subscribed' AND a.card_id != ''"
             " AND a.totp_ref != ''"
@@ -174,12 +207,12 @@ def create_app() -> FastAPI:
             " ORDER BY a.created_at"
         )
         n = await queue.runner.submit_many([r["id"] for r in rows])
-        return _to(msg=f"{n} akun masuk antrean")
+        return _to(msg=i18n.tn(_lang(request), "flash_run_all", n))
 
     @app.post("/queue/stop", dependencies=post_guard)
-    async def queue_stop():
+    async def queue_stop(request: Request):
         await queue.runner.stop()
-        return _to(msg="stop dikirim")
+        return _to(msg=i18n.t(_lang(request), "flash_stop"))
 
     @app.get("/api/queue", dependencies=guard)
     async def api_queue() -> JSONResponse:
@@ -192,7 +225,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"log": log, "size": len(log)})
 
     @app.get("/api/state", dependencies=guard)
-    async def api_state() -> JSONResponse:
+    async def api_state(request: Request) -> JSONResponse:
         """One request per tick: OTP codes, queue, account rows and the live log.
 
         The page polls this instead of three separate endpoints, so a refresh
@@ -220,7 +253,7 @@ def create_app() -> FastAPI:
             "current": current,
             "pending": queue.runner.pending,
             "accounts": {
-                r["id"]: {"status": r["status"], "step": r["step"], "message": r["step_message"]}
+                r["id"]: {"status": r["status"], "step": r["step"], "message": i18n.t_or(_lang(request), r["step_message"])}
                 for r in rows
             },
             "log": log,

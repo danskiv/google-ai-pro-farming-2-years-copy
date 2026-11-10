@@ -29,7 +29,7 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
     try:
         await page.locator(sel).first.wait_for(state="attached", timeout=6000)
     except Exception:
-        print(f"   kolom tidak ada: {sel}")
+        print(f"   field not found: {sel}")
         return False
 
     for attempt in range(tries):
@@ -38,7 +38,7 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
             await el.wait_for(state="visible", timeout=5000)
             await el.click(timeout=5000)
         except Exception as exc:  # noqa: BLE001 - element swap races
-            print(f"   isi gagal (klik): {type(exc).__name__}")
+            print(f"   fill failed (click): {type(exc).__name__}")
             await asyncio.sleep(1.0)
             continue
 
@@ -65,7 +65,7 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
         try:
             await el.press_sequentially(value, delay=60)
         except Exception as exc:  # noqa: BLE001
-            print(f"   isi gagal (ketik): {type(exc).__name__}")
+            print(f"   fill failed (type): {type(exc).__name__}")
             await asyncio.sleep(1.0)
             continue
 
@@ -83,8 +83,8 @@ async def fill(page: Page, sel: str, value: str, *, tries: int = 3) -> bool:
             bad = await el.get_attribute("aria-invalid", timeout=2000) or ""
         except Exception:
             pass
-        print(f"   isi tidak masuk (percobaan {attempt + 1}/{tries}, "
-              f"panjang={len(landed)}, aria-invalid={bad or '-'})")
+        print(f"   fill did not land (attempt {attempt + 1}/{tries}, "
+              f"length={len(landed)}, aria-invalid={bad or '-'})")
         await asyncio.sleep(1.2)
 
     return False

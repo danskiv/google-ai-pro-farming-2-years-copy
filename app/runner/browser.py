@@ -188,10 +188,10 @@ def _fetch_clients2_mirror(url: str) -> tuple[int, str, bytes]:
         mirror += "&" + u.query
     req = urllib.request.Request(mirror, headers={"User-Agent": "Mozilla/5.0"})
 
-    # Fetch ini tunduk pada opt-in egress yang sama dengan Chromium (lihat
-    # _base_args dan launch): proxy relay lokal + sertifikat hasil tanda
-    # tangan ulang proxy. Tanpa keduanya, mirror mati di jaringan yang justru
-    # paling membutuhkannya.
+    # This fetch is subject to the same egress opt-ins as Chromium (see
+    # _base_args and launch): the local relay proxy + the proxy's re-signed
+    # certificates. Without both, the mirror dies on exactly the networks
+    # that need it most.
     handlers: list[Any] = []
     raw_proxy = os.environ.get("GAI_BROWSER_PROXY", "").strip()
     if raw_proxy:
@@ -219,12 +219,12 @@ def _fetch_clients2_mirror(url: str) -> tuple[int, str, bytes]:
         with opener.open(req, timeout=30) as resp:
             out = (resp.status, resp.headers.get_content_type(), resp.read())
     except Exception as exc:  # noqa: BLE001 - fall back to an empty script
-        # Kegagalan tidak di-cache: satu fetch yang gagal sesaat tidak boleh
-        # meracuni URL itu selama sisa umur proses.
-        log.warning("clients2 mirror gagal %s: %s", url[:90], exc)
+        # Failures are not cached: one briefly failed fetch must not poison
+        # that URL for the rest of the process lifetime.
+        log.warning("clients2 mirror failed %s: %s", url[:90], exc)
         return (502, "application/javascript", b"")
     if out[0] != 200 or not out[2]:
-        log.warning("clients2 mirror %s -> %s (%d byte), tidak di-cache",
+        log.warning("clients2 mirror %s -> %s (%d bytes), not cached",
                     url[:90], out[0], len(out[2]))
         return out
     _mirror_cache[url] = out

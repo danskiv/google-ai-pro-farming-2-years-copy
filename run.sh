@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Jalankan konsol di macOS atau Ubuntu/Linux. Aman diulang: pakai venv kalau
-# ada, kalau tidak buat dulu. `./run.sh --check` hanya memeriksa lingkungan.
+# Run the console on macOS or Ubuntu/Linux. Safe to re-run: use the venv if
+# it exists, otherwise create it first. `./run.sh --check` only checks the environment.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 OS=$(uname -s)
 say() { printf '%s\n' "$*" >&2; }
-die() { printf 'gagal: %s\n' "$*" >&2; exit 1; }
+die() { printf 'failed: %s\n' "$*" >&2; exit 1; }
 
 # ── Python 3.12+ ────────────────────────────────────────────────────────────
-# pyproject menuntut >=3.12. 3.13 lebih dulu karena itu yang dipakai di macOS,
-# lalu 3.12 yang tersedia bawaan di Ubuntu 24.04.
+# pyproject requires >=3.12. 3.13 first because that is what macOS uses,
+# then 3.12, which ships by default on Ubuntu 24.04.
 find_python() {
   for cand in python3.13 python3.12; do
     if command -v "$cand" >/dev/null 2>&1; then command -v "$cand"; return 0; fi
@@ -21,19 +21,19 @@ find_python() {
 PY=$(find_python) || true
 if [ -z "${PY:-}" ]; then
   case "$OS" in
-    Darwin) die "python3.13 tidak ada. Pasang dulu: brew install python@3.13" ;;
-    *)      die "python3.13/3.12 tidak ada. Ubuntu 24.04: sudo apt install -y python3.12 python3.12-venv"
+    Darwin) die "python3.13 not found. Install it first: brew install python@3.13" ;;
+    *)      die "python3.13/3.12 not found. Ubuntu 24.04: sudo apt install -y python3.12 python3.12-venv"
             ;;
   esac
 fi
 
 if [ ! -x .venv/bin/python ]; then
-  say "membuat .venv dengan $("$PY" -V 2>&1)"
-  "$PY" -m venv .venv || die "venv gagal — paket python3-venv belum terpasang? (sudo apt install python3.12-venv)"
+  say "creating .venv with $("$PY" -V 2>&1)"
+  "$PY" -m venv .venv || die "venv failed — is the python3-venv package installed? (sudo apt install python3.12-venv)"
 fi
 
 if ! .venv/bin/python -c 'import fastapi, playwright, tzdata' >/dev/null 2>&1; then
-  say "memasang dependensi hash-pinned dari requirements.lock"
+  say "installing hash-pinned dependencies from requirements.lock"
   .venv/bin/python -m pip install --quiet --upgrade pip
   .venv/bin/python -m pip install --require-hashes --no-input -r requirements.lock
 fi
@@ -52,25 +52,25 @@ browser_present() {
 
 if ! browser_present; then
   if [ "${GAI_SKIP_BROWSER_INSTALL:-0}" = "1" ]; then
-    say "peringatan: tidak ada Chrome/Chromium, dan GAI_SKIP_BROWSER_INSTALL=1 — launch akan gagal"
+    say "warning: no Chrome/Chromium, and GAI_SKIP_BROWSER_INSTALL=1 — launch will fail"
   else
-    say "tidak ada Chrome/Chromium sistem — memasang chromium bawaan Playwright"
+    say "no system Chrome/Chromium — installing Playwright's bundled chromium"
     .venv/bin/python -m playwright install chromium \
-      || say "peringatan: unduhan browser gagal; jalankan manual: .venv/bin/python -m playwright install --with-deps chromium"
+      || say "warning: browser download failed; run manually: .venv/bin/python -m playwright install --with-deps chromium"
   fi
 fi
 
-# ── lingkungan ──────────────────────────────────────────────────────────────
-# PORT adalah nama pendeknya; GAI_BIND_PORT menang kalau keduanya diisi.
+# ── environment ─────────────────────────────────────────────────────────────
+# PORT is the short name; GAI_BIND_PORT wins when both are set.
 export GAI_BIND_PORT="${GAI_BIND_PORT:-${PORT:-8765}}"
 
 if [ "$OS" = "Darwin" ]; then
-  [ -x /usr/bin/security ] || say "peringatan: CLI security tidak ada — secret jatuh ke backend file"
+  [ -x /usr/bin/security ] || say "warning: security CLI not found — secrets fall back to the file backend"
 else
   command -v secret-tool >/dev/null 2>&1 \
-    || say "catatan: libsecret-tools tidak ada — secret disimpan di vault.json 0600 (bukan keyring)"
+    || say "note: libsecret-tools not found — secrets are stored in vault.json 0600 (not a keyring)"
   if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-    say "catatan: tidak ada DISPLAY — browser headless. Untuk headed: xvfb-run -a ./run.sh"
+    say "note: no DISPLAY — headless browser. For headed: xvfb-run -a ./run.sh"
   fi
 fi
 
