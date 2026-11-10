@@ -57,6 +57,11 @@ the browser runs headed natively — no Xvfb needed. Chrome/Chromium is searched
 the standard Windows install locations; if neither exists, the bundled Playwright
 browser is used.
 
+The console UI is bilingual — English by default, Indonesian via the
+header toggle or `?lang=id`; the `gai_lang` cookie (1 year) also governs the
+language of handler-composed flash messages, and account step messages may be
+catalogue keys rendered per-viewer.
+
 The console token is in the `console.token` file in the data dir
 (Linux: `~/.local/share/GaiConsole/`, macOS: `~/Library/Application
 Support/GaiConsole/`, Windows: `%LOCALAPPDATA%\GaiConsole\`). All API calls use the header

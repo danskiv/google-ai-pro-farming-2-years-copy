@@ -338,9 +338,9 @@ def test_vault_card_rotation_and_reimport() -> None:
 
     async def run() -> None:
         await db.migrate()
-        ok, note = await vault.add_card("4242424242424242", "12", "30", "123")
+        ok, note, _label = await vault.add_card("4242424242424242", "12", "30", "123")
         assert ok, note
-        ok, note = await vault.add_card("5555555555554444", "12", "30", "123")
+        ok, note, _label = await vault.add_card("5555555555554444", "12", "30", "123")
         assert ok, note
         ok, note = await vault.add_account("test@example.com", "pw-old", "")
         assert ok, note
@@ -363,7 +363,7 @@ def test_vault_card_rotation_and_reimport() -> None:
         # and the card assignment stays valid
         await db.execute("UPDATE accounts SET status = 'failed' WHERE id = ?", (acc["id"],))
         ok, note = await vault.add_account("test@example.com", "pw-new", "JBSWY3DPEHPK3PXP")
-        assert not ok and note.endswith("updated"), note
+        assert not ok and note == "updated", note
         acc = await db.fetch_one("SELECT * FROM accounts WHERE email = 'test@example.com'")
         assert acc["status"] == "pending", acc["status"]
         assert acc["totp_ref"] == f"{acc['id']}:totp", acc["totp_ref"]
@@ -496,6 +496,11 @@ def test_i18n_catalogues() -> None:
     assert i18n.noun("en", "cards", 4) == "4 cards"
     assert i18n.noun("id", "cards", 1) == "1 kartu"
     assert i18n.noun("id", "cards", 4) == "4 kartu"
+    assert i18n.tn("en", "flash_accounts_imported", 1) == "1 account imported"
+    assert i18n.tn("en", "flash_accounts_imported", 3) == "3 accounts imported"
+    assert i18n.tn("en", "flash_run_all", 1) == "1 account queued"
+    assert i18n.t_or("id", "step_card_not_yet_removed") == "kartu belum terlepas di Google"
+    assert i18n.t_or("en", "legacy prose stays") == "legacy prose stays"
     assert set(i18n.js_catalogue("id")) == set(i18n.JS_KEYS)
 
 

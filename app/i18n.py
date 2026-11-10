@@ -69,23 +69,35 @@ STR: dict[str, dict[str, str]] = {
         "js_done": "(done)",
         "js_failed": "(failed)",
         # flash messages composed by handlers
-        "flash_accounts_imported": "{n} accounts imported",
+        "flash_accounts_imported_one": "{n} account imported",
+        "flash_accounts_imported_many": "{n} accounts imported",
+        "flash_account_added": "{email} added",
+        "flash_invalid_email": "invalid email or format",
+        "flash_account_updated": "{email} already exists — updated",
+        "flash_card_added": "{label} added",
+        "flash_card_exists": "{label} already exists",
+        "step_card_not_yet_removed": "card not yet removed on Google",
+        "aria_language": "language",
+        "auto_scroll_on": "auto-scroll: on",
+        "auto_scroll_off": "auto-scroll: off",
         "flash_updated": "{n} updated",
         "flash_skipped": "{n} skipped",
         "flash_no_accounts": "0 accounts imported",
         "flash_account_deleted": "account deleted",
-        "flash_cards_imported": "{n} cards imported",
+        "flash_cards_imported_one": "{n} card imported",
+        "flash_cards_imported_many": "{n} cards imported",
         "flash_invalid_card": "invalid card format",
         "flash_card_status": "card status changed",
         "flash_card_deleted": "card deleted, accounts released",
         "flash_queued": "queued",
         "flash_already_queued": "already queued/running",
-        "flash_run_all": "{n} accounts queued",
+        "flash_run_all_one": "{n} account queued",
+        "flash_run_all_many": "{n} accounts queued",
         "flash_stop": "stop sent",
     },
     "id": {
         "queue_running": "jalan: {current}",
-        "queue_pending": "{n} antre",
+        "queue_pending": "{n} dalam antrean",
         "queue_idle": "idle",
         "accounts_one": "akun",
         "accounts_many": "akun",
@@ -95,7 +107,7 @@ STR: dict[str, dict[str, str]] = {
         "stop": "stop",
         "close": "tutup",
         "accounts": "Akun",
-        "accounts_hint": "Tempel satu per baris: <code>email|password|secret-totp</code>. "
+        "accounts_hint": "Tempel satu per baris: <code>email|password|totp-secret</code>. "
                          "Seed disimpan di vault (Keychain/Secret Service/file 0600), "
                          "yang tampil hanya kodenya.",
         "import": "Impor",
@@ -129,18 +141,30 @@ STR: dict[str, dict[str, str]] = {
         "js_disconnected": "koneksi terputus",
         "js_done": "(selesai)",
         "js_failed": "(gagal)",
-        "flash_accounts_imported": "{n} akun masuk",
+        "flash_accounts_imported_one": "{n} akun masuk",
+        "flash_accounts_imported_many": "{n} akun masuk",
+        "flash_account_added": "{email} ditambahkan",
+        "flash_invalid_email": "email atau format tidak valid",
+        "flash_account_updated": "{email} sudah ada — diperbarui",
+        "flash_card_added": "{label} ditambahkan",
+        "flash_card_exists": "{label} sudah ada",
+        "step_card_not_yet_removed": "kartu belum terlepas di Google",
+        "aria_language": "bahasa",
+        "auto_scroll_on": "gulir otomatis: aktif",
+        "auto_scroll_off": "gulir otomatis: mati",
         "flash_updated": "{n} diperbarui",
         "flash_skipped": "{n} dilewati",
         "flash_no_accounts": "0 akun masuk",
         "flash_account_deleted": "akun dihapus",
-        "flash_cards_imported": "{n} kartu masuk",
+        "flash_cards_imported_one": "{n} kartu masuk",
+        "flash_cards_imported_many": "{n} kartu masuk",
         "flash_invalid_card": "format kartu tidak valid",
         "flash_card_status": "status kartu diubah",
         "flash_card_deleted": "kartu dihapus, akun dilepas",
         "flash_queued": "masuk antrean",
         "flash_already_queued": "sudah antre/running",
-        "flash_run_all": "{n} akun masuk antrean",
+        "flash_run_all_one": "{n} akun masuk antrean",
+        "flash_run_all_many": "{n} akun masuk antrean",
         "flash_stop": "stop dikirim",
     },
 }
@@ -148,7 +172,7 @@ STR: dict[str, dict[str, str]] = {
 # Keys the page script needs at runtime.
 JS_KEYS = (
     "queue_running", "queue_pending", "queue_idle", "show", "hide",
-    "js_disconnected", "js_done", "js_failed",
+    "js_disconnected", "js_done", "js_failed", "auto_scroll_on", "auto_scroll_off",
 )
 
 
@@ -171,6 +195,22 @@ def noun(lang: str, base: str, n: int) -> str:
     not pluralise, so both forms coincide there)."""
     word = t(lang, f"{base}_{'one' if n == 1 else 'many'}")
     return f"{n} {word}"
+
+
+def tn(lang: str, base: str, n: int, **fmt: object) -> str:
+    """A catalogue string with a singular/plural variant chosen by ``n``
+    (the ``<base>_one`` / ``<base>_many`` keys); ``n`` is passed as ``{n}``."""
+    return t(lang, f"{base}_{'one' if n == 1 else 'many'}", n=n, **fmt)
+
+
+def t_or(lang: str, text: str) -> str:
+    """Translate ``text`` when it is a catalogue key, else return it as-is.
+
+    Lets stored values (e.g. an account's step_message) hold a key that is
+    rendered in the viewer's language, while legacy prose passes through."""
+    if text in STR[DEFAULT] or text in STR.get(lang, {}):
+        return t(lang, text)
+    return text
 
 
 def js_catalogue(lang: str) -> dict[str, str]:

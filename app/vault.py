@@ -16,7 +16,7 @@ import secrets as _rand
 import time
 from typing import Any
 
-from . import db, secrets, totp
+from . import db, i18n, secrets, totp
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _CARD_NUMBER = re.compile(r"^\d{12,19}$")
@@ -97,7 +97,7 @@ def brand_of(number: str) -> str:
 async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
     email = email.strip().lower()
     if not _EMAIL.match(email) or not password:
-        return False, f"invalid line: {email or '(empty)'}"
+        return False, "invalid"
     row = await db.fetch_one("SELECT id FROM accounts WHERE email = ?", (email,))
     now = int(time.time())
     if row:
@@ -118,7 +118,7 @@ async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
             (now, acc_id),
         )
         await attach_card(acc_id)
-        return False, f"{email} already exists — updated"
+        return False, "updated"
 
     acc_id = "acc_" + _rand.token_hex(6)
     secret_put(f"{acc_id}:password", password)
@@ -130,7 +130,7 @@ async def add_account(email: str, password: str, seed: str) -> tuple[bool, str]:
         (acc_id, email, f"{acc_id}:password", f"{acc_id}:totp" if seed else "", "", now, now),
     )
     await attach_card(acc_id)
-    return True, f"{email} added"
+    return True, "added"
 
 
 async def backfill_cards() -> int:
@@ -151,7 +151,7 @@ async def import_accounts(blob: str) -> list[str]:
             continue
         parsed = parse_account(line)
         if not parsed:
-            notes.append(f"skipped: {line[:48]}")
+            notes.append("skipped")
             continue
         ok, note = await add_account(*parsed)
         notes.append(note)
@@ -165,14 +165,16 @@ async def delete_account(acc_id: str) -> None:
 
 
 # ── cards ───────────────────────────────────────────────────────────────────
-async def add_card(number: str, month: str, year: str, cvc: str) -> tuple[bool, str]:
+async def add_card(number: str, month: str, year: str, cvc: str) -> tuple[bool, str, str]:
+    """Returns (created, status, label): status is a machine token
+    ("added" / "exists" / "invalid") — callers localise it, never parse it."""
     number = re.sub(r"[^\d]", "", number)
     if not _CARD_NUMBER.match(number):
-        return False, "invalid card number"
+        return False, "invalid", ""
     row = await db.fetch_one("SELECT id FROM cards WHERE last4 = ? AND exp_month = ? AND exp_year = ?",
                              (number[-4:], month, year))
     if row:
-        return False, f"{brand_of(number)}-{number[-4:]} already exists"
+        return False, "exists", f"{brand_of(number)}-{number[-4:]}"
 
     card_id = "card_" + _rand.token_hex(6)
     secret_put(f"{card_id}:number", number)
@@ -184,7 +186,7 @@ async def add_card(number: str, month: str, year: str, cvc: str) -> tuple[bool, 
          brand_of(number), month, year, int(time.time())),
     )
     await backfill_cards()
-    return True, f"{brand_of(number)}-{number[-4:]} added"
+    return True, "added", f"{brand_of(number)}-{number[-4:]}"
 
 
 async def import_cards(blob: str) -> list[str]:
@@ -195,9 +197,9 @@ async def import_cards(blob: str) -> list[str]:
             continue
         parsed = parse_card(line)
         if not parsed:
-            notes.append(f"skipped: {line[:48]}")
+            notes.append("skipped")
             continue
-        ok, note = await add_card(*parsed)
+        ok, note, _label = await add_card(*parsed)
         notes.append(note)
     return notes
 
@@ -274,7 +276,7 @@ async def account_creds(email: str) -> tuple[str, str, str] | None:
 
 
 # ── views ───────────────────────────────────────────────────────────────────
-async def accounts_view() -> list[dict[str, Any]]:
+async def accounts_view(lang: str = "en") -> list[dict[str, Any]]:
     rows = await db.fetch_all(
         "SELECT a.*, c.brand, c.last4, c.status AS card_status"
         " FROM accounts a LEFT JOIN cards c ON c.id = a.card_id ORDER BY a.created_at"
@@ -293,7 +295,7 @@ async def accounts_view() -> list[dict[str, Any]]:
             "card_status": row["card_status"] or "",
             "status": row["status"],
             "step": row["step"],
-            "message": row["step_message"],
+            "message": i18n.t_or(lang, row["step_message"]),
         })
     return out
 

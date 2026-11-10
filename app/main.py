@@ -78,18 +78,22 @@ def create_app() -> FastAPI:
             # First visit via ?t=: trade the URL token for a cookie, then
             # redirect to a clean URL so the token does not linger in the
             # address bar, history, or proxy logs.
-            dest = "/?" + "&".join(
-                f"{k}={quote(v)}" for k, v in (("msg", msg), ("err", err)) if v
-            )
+            parts = [(k, v) for k, v in (("msg", msg), ("err", err)) if v]
+            if "lang" in request.query_params and lang in i18n.LANGS:
+                parts.append(("lang", lang))
+            dest = "/?" + "&".join(f"{k}={quote(v)}" for k, v in parts)
             resp = RedirectResponse(dest if len(dest) > 2 else "/", status_code=303)
             resp.set_cookie(COOKIE_NAME, request.state.set_cookie_token,
                             httponly=True, samesite="strict")
+            if parts and parts[-1][0] == "lang":
+                resp.set_cookie(i18n.COOKIE, lang, max_age=31536000,
+                                httponly=False, samesite="strict")
             return resp
         resp = templates.TemplateResponse(
             request,
             "index.html",
             {
-                "accounts": await vault.accounts_view(),
+                "accounts": await vault.accounts_view(lang),
                 "cards": await vault.cards_view(),
                 "msg": msg,
                 "err": err,
@@ -102,7 +106,7 @@ def create_app() -> FastAPI:
             },
         )
         if lang in i18n.LANGS:
-            resp.set_cookie(i18n.COOKIE, lang, httponly=False, samesite="strict")
+            resp.set_cookie(i18n.COOKIE, lang, max_age=31536000, httponly=False, samesite="strict")
         return resp
 
     @app.get("/api/codes", dependencies=guard)
@@ -125,12 +129,12 @@ def create_app() -> FastAPI:
     async def accounts_import(request: Request, blob: str = Form(default="")):
         lang = _lang(request)
         notes = await vault.import_accounts(blob)
-        added = sum(1 for n in notes if n.endswith("added"))
-        updated = sum(1 for n in notes if n.endswith("updated"))
+        added = notes.count("added")
+        updated = notes.count("updated")
         skipped = len(notes) - added - updated
         parts = []
         if added:
-            parts.append(i18n.t(lang, "flash_accounts_imported", n=added))
+            parts.append(i18n.tn(lang, "flash_accounts_imported", added))
         if updated:
             parts.append(i18n.t(lang, "flash_updated", n=updated))
         if skipped:
@@ -138,9 +142,14 @@ def create_app() -> FastAPI:
         return _to(msg=", ".join(parts) if parts else i18n.t(lang, "flash_no_accounts"))
 
     @app.post("/accounts/add", dependencies=post_guard)
-    async def accounts_add(email: str = Form(...), password: str = Form(...), seed: str = Form(default="")):
-        _, note = await vault.add_account(email, password, seed)
-        return _to(msg=note)
+    async def accounts_add(request: Request, email: str = Form(...), password: str = Form(...), seed: str = Form(default="")):
+        lang = _lang(request)
+        _, status = await vault.add_account(email, password, seed)
+        if status == "added":
+            return _to(msg=i18n.t(lang, "flash_account_added", email=email))
+        if status == "updated":
+            return _to(msg=i18n.t(lang, "flash_account_updated", email=email))
+        return _to(err=i18n.t(lang, "flash_invalid_email"))
 
     @app.post("/accounts/{acc_id}/delete", dependencies=post_guard)
     async def accounts_delete(request: Request, acc_id: str):
@@ -151,9 +160,9 @@ def create_app() -> FastAPI:
     async def cards_import(request: Request, blob: str = Form(default="")):
         lang = _lang(request)
         notes = await vault.import_cards(blob)
-        added = sum(1 for n in notes if n.endswith("added"))
+        added = notes.count("added")
         unusable = len(notes) - added
-        text = i18n.t(lang, "flash_cards_imported", n=added)
+        text = i18n.tn(lang, "flash_cards_imported", added)
         if unusable:
             text += ", " + i18n.t(lang, "flash_skipped", n=unusable)
         return _to(msg=text)
@@ -163,8 +172,13 @@ def create_app() -> FastAPI:
         parsed = vault.parse_card(f"{number}|{exp}|{cvc}")
         if not parsed:
             return _to(err=i18n.t(_lang(request), "flash_invalid_card"))
-        _, note = await vault.add_card(*parsed)
-        return _to(msg=note)
+        lang = _lang(request)
+        _, status, label = await vault.add_card(*parsed)
+        if status == "added":
+            return _to(msg=i18n.t(lang, "flash_card_added", label=label))
+        if status == "exists":
+            return _to(msg=i18n.t(lang, "flash_card_exists", label=label))
+        return _to(err=i18n.t(lang, "flash_invalid_card"))
 
     @app.post("/cards/{card_id}/status", dependencies=post_guard)
     async def cards_status(request: Request, card_id: str, dead: int = Form(...)):
@@ -193,7 +207,7 @@ def create_app() -> FastAPI:
             " ORDER BY a.created_at"
         )
         n = await queue.runner.submit_many([r["id"] for r in rows])
-        return _to(msg=i18n.t(_lang(request), "flash_run_all", n=n))
+        return _to(msg=i18n.tn(_lang(request), "flash_run_all", n))
 
     @app.post("/queue/stop", dependencies=post_guard)
     async def queue_stop(request: Request):
@@ -211,7 +225,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"log": log, "size": len(log)})
 
     @app.get("/api/state", dependencies=guard)
-    async def api_state() -> JSONResponse:
+    async def api_state(request: Request) -> JSONResponse:
         """One request per tick: OTP codes, queue, account rows and the live log.
 
         The page polls this instead of three separate endpoints, so a refresh
@@ -239,7 +253,7 @@ def create_app() -> FastAPI:
             "current": current,
             "pending": queue.runner.pending,
             "accounts": {
-                r["id"]: {"status": r["status"], "step": r["step"], "message": r["step_message"]}
+                r["id"]: {"status": r["status"], "step": r["step"], "message": i18n.t_or(_lang(request), r["step_message"])}
                 for r in rows
             },
             "log": log,

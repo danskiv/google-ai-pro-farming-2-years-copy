@@ -688,6 +688,8 @@ async def detach_on_google(page: Page, last4: str) -> bool:
                 ):
                     asked = True
                     say("CARD", "request sent to the phone — approve it there (max 300s)")
+            # Page-text needles stay bilingual on purpose: the payments page
+            # follows the account's language, so both spellings are matched.
             elif await any_text(page, "will be removed") or \
                     await any_text(page, "akan dihapus"):
                 if not saved and (
@@ -760,7 +762,7 @@ async def release_card(page: Page, acc_id: str) -> None:
     # failure must be visible in the UI via step_message — not only in the run log.
     await db.execute(
         "UPDATE accounts SET step_message = ? WHERE id = ?",
-        ("" if removed else "card not yet removed on Google", acc_id),
+        ("" if removed else "step_card_not_yet_removed", acc_id),
     )
     await db.execute("UPDATE accounts SET card_id = '' WHERE id = ?", (acc_id,))
     say("CARD", "assignment released in the vault — the card itself is kept")

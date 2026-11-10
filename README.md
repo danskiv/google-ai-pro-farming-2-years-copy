@@ -290,6 +290,10 @@ make sure secrets really are in the keyring and not in a file.
 2. Import accounts: `email|password|totp_seed` (same format).
 3. Press **run** on an account, or **run-all** for a sequential queue.
 
+The console UI is bilingual: **English by default**, Indonesian via the EN·ID
+toggle in the header (or `?lang=id`). The choice is remembered for a year in
+the `gai_lang` cookie and also governs the language of flash messages.
+
 Per-account flow: login → discovery of the running term → layers 1–4 → date guard →
 cancel → remove the card from the account (the card stays in the vault for the next account).
 
@@ -312,6 +316,7 @@ app/
   main.py          page routes + queue (+ /healthz: backend & browser)
   config.py        settings, per-OS data dir, console token
   db.py            SQLite schema + idempotent migrations
+  i18n.py          UI string catalogue: English (default) / Indonesian
   vault.py         accounts & cards (values in the vault)
   secrets.py       secret backends: security / secret-tool / 0600 file (Windows: file, user profile ACL)
   totp.py          stdlib TOTP

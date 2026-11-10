@@ -186,7 +186,7 @@
   <form method="post" action="/queue/stop">
     <button class="danger" type="submit">{{ tr('stop') }}</button>
   </form>
-  <nav class="lang" aria-label="language">
+  <nav class="lang" aria-label="{{ tr('aria_language') }}">
     <a href="/?lang=en" {% if lang == 'en' %}class="on"{% endif %}>EN</a>·<a href="/?lang=id" {% if lang == 'id' %}class="on"{% endif %}>ID</a>
   </nav>
 </header>
@@ -199,7 +199,7 @@
     <h2>{{ tr('accounts') }}</h2>
     <p class="hint">{{ tr('accounts_hint')|safe }}</p>
     <form method="post" action="/accounts/import">
-      <textarea name="blob" placeholder="nama@gmail.com|password|JBSWY3DPEHPK3PXP"></textarea>
+      <textarea name="blob" placeholder="name@gmail.com|password|JBSWY3DPEHPK3PXP"></textarea>
       <div class="row"><button class="primary" type="submit">{{ tr('import') }}</button></div>
     </form>
     <form method="post" action="/accounts/add">
@@ -328,7 +328,7 @@
     <span class="muted" id="logwho"></span>
     <span class="spacer"></span>
     <span class="muted" id="logstat"></span>
-    <button type="button" id="follow" aria-pressed="true">auto-scroll: on</button>
+    <button type="button" id="follow" aria-pressed="true">{{ tr('auto_scroll_on') }}</button>
   </div>
   <pre id="log" tabindex="0" data-empty="{{ tr('log_empty') }}"></pre>
 </section>
@@ -398,7 +398,7 @@
 
   followBtn.addEventListener("click", () => {
     follow = !follow;
-    followBtn.textContent = `auto-scroll: ${follow ? "on" : "off"}`;
+    followBtn.textContent = follow ? I18N.auto_scroll_on : I18N.auto_scroll_off;
     followBtn.setAttribute("aria-pressed", String(follow));
     if (follow) logEl.scrollTop = logEl.scrollHeight;
   });
@@ -407,7 +407,7 @@
     const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
     if (atBottom !== follow) {
       follow = atBottom;
-      followBtn.textContent = `auto-scroll: ${follow ? "on" : "off"}`;
+      followBtn.textContent = follow ? I18N.auto_scroll_on : I18N.auto_scroll_off;
       followBtn.setAttribute("aria-pressed", String(follow));
     }
   });
